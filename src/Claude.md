@@ -12,6 +12,15 @@
 
 * Giving the enemies a "Legionary" structure of groups of 8, 80 and 800 and so on
 
+* Add static turrets as enemies
+
+* Add shield bubbles and cool visual effects for it
+
+* Add some sort of stats reporting
+
+* Add saving mechanism 
+    * Local storage will do for now
+
 * Add some additional libraries... 
     * They are added as an addendum
     * They are suggested to be used to solve problems

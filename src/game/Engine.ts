@@ -40,6 +40,7 @@ import { ShipColor } from './ShipParts';
 import { ShipConfig } from '../components/ShipConfigPanel';
 import { Projectile } from './Projectile';
 import { Enemy, EnemyConfig } from './Enemy';
+import { StaticTurret, TurretConfig } from './StaticTurret';
 
 export type GameMode = 'classic' | 'survival' | 'practice' | 'test';
 
@@ -68,10 +69,10 @@ export class Engine {
     private targetZoomLevel = 0.5;
     private minZoom = 0.1;
     private maxZoom = 4.0; private wheelHandler?: (event: WheelEvent) => void;
-    private onReturnToMenu?: () => void;
-    private isGameOver = false;
+    private onReturnToMenu?: () => void; private isGameOver = false;
     private projectiles: Projectile[] = [];
     private enemies: Enemy[] = [];
+    private turrets: StaticTurret[] = [];
 
     constructor(mode: GameMode, onShowPartsDisplay?: () => void, onReturnToMenu?: () => void) {
         this.gameMode = mode;
@@ -339,10 +340,23 @@ export class Engine {
                 this.gameContainer.removeChild(proj.graphic);
             }
             return alive;
+        });        // Update enemies (remove destroyed ones)
+        this.enemies = this.enemies.filter((enemy) => {
+            const alive = enemy.update(this.player);
+            if (!alive) {
+                Matter.Composite.remove(this.engine.world, enemy.body);
+                this.gameContainer.removeChild(enemy.graphic);
+            }
+            return alive;
+        });        // Update turrets (remove destroyed ones)
+        this.turrets = this.turrets.filter((turret) => {
+            const alive = turret.update(this.player);
+            if (!alive) {
+                Matter.Composite.remove(this.engine.world, turret.body);
+                this.gameContainer.removeChild(turret.graphic);
+            }
+            return alive;
         });
-
-        // Update enemies
-        this.enemies.forEach((enemy) => enemy.update(this.player));
     }
 
     private updateCamera() {
@@ -405,15 +419,19 @@ export class Engine {
 
         // Create background elements
         this.createGrid();
-        this.createStars();
-
-        // Initialize Matter.js with mode-specific settings
+        this.createStars();        // Initialize Matter.js with mode-specific settings
         this.engine = Matter.Engine.create({
             enableSleeping: false,
             timing: {
                 timeScale: 1
             }
         });
+
+        // Set up collision detection using Matter.js events
+        this.setupCollisionDetection();
+
+        // Set up collision detection using Matter.js events
+        this.setupCollisionDetection();
         // Configure physics based on game mode
         switch (this.gameMode) {
             case 'test':
@@ -752,9 +770,7 @@ export class Engine {
             enabledParts: this.shipConfig.enabledParts
         };
     } private createTestModeHelp() {
-        if (this.gameMode !== 'test') return;
-
-        const helpText = new PIXI.Text(
+        if (this.gameMode !== 'test') return; const helpText = new PIXI.Text(
             'Test Mode Controls:\n' +
             'WASD/Arrows - Move ship\n' +
             'Space - Toggle thrusters\n' +
@@ -762,7 +778,18 @@ export class Engine {
             'R - Reset position\n' +
             'P - Show parts display\n' +
             '+/- or Scroll - Zoom in/out\n' +
-            'X - Destroy ship',
+            'X - Destroy ship\n' +
+            '\nEnemy Controls:\n' +
+            'E - Spawn single enemy\n' +
+            'W - Spawn enemy wave (5)\n' +
+            '1 - Spawn small legion (8)\n' +
+            '2 - Spawn medium legion (80)\n' +
+            '3 - Spawn large legion (800)\n' +
+            'C - Clear all enemies\n' +
+            '\nTurret Controls:\n' +
+            'T - Spawn single turret\n' +
+            'G - Spawn defense grid (6)\n' +
+            'V - Clear all turrets',
             {
                 fontFamily: 'Press Start 2P',
                 fontSize: 12,
@@ -803,8 +830,7 @@ export class Engine {
                 case '-':
                 case '_':
                     this.targetZoomLevel = Math.max(this.minZoom, this.targetZoomLevel - 0.1);
-                    break;
-                case 'x': case 'X':
+                    break; case 'x': case 'X':
                     if (this.player && !this.player.isDestroyed) {
                         const destroyedParts = this.player.destroy();
                         destroyedParts.forEach(part => {
@@ -823,6 +849,41 @@ export class Engine {
                             this.cameraTarget = largestPart.body;
                         }
                     }
+                    break;
+                case 'e': case 'E':
+                    // Spawn single enemy
+                    this.addRandomEnemy();
+                    break;
+                case 'w': case 'W':
+                    // Spawn enemy wave (5 enemies)
+                    this.spawnEnemyWave(5);
+                    break;
+                case '1':
+                    // Spawn small legion (8 enemies)
+                    this.spawnEnemyLegion(8);
+                    break;
+                case '2':
+                    // Spawn medium legion (80 enemies)
+                    this.spawnEnemyLegion(80);
+                    break;
+                case '3':
+                    // Spawn large legion (800 enemies)
+                    this.spawnEnemyLegion(800);
+                    break; case 'c': case 'C':
+                    // Clear all enemies
+                    this.clearAllEnemies();
+                    break;
+                case 't': case 'T':
+                    // Spawn single turret
+                    this.addRandomTurret();
+                    break;
+                case 'g': case 'G':
+                    // Spawn turret defense grid
+                    this.spawnTurretDefenseGrid(6);
+                    break;
+                case 'v': case 'V':
+                    // Clear all turrets
+                    this.clearAllTurrets();
                     break;
             }
         });
@@ -883,9 +944,7 @@ export class Engine {
 
     public getPlayer(): Player | null {
         return this.player;
-    }
-
-    public getMinimapData() {
+    } public getMinimapData() {
         return {
             player: this.player ? {
                 x: this.player.body.position.x,
@@ -900,6 +959,25 @@ export class Engine {
                 color: this.graphics[index]?.tint || 0xffffff,
                 isDestroyed: false // TODO: track destroyed state
             })),
+            enemies: this.enemies.map(enemy => ({
+                x: enemy.body.position.x,
+                y: enemy.body.position.y,
+                isDestroyed: enemy.isDestroyed,
+                size: enemy.getSize()
+            })),
+            turrets: this.turrets.map(turret => ({
+                x: turret.body.position.x,
+                y: turret.body.position.y,
+                isDestroyed: turret.isDestroyed,
+                size: turret.getSize(),
+                range: turret.getRange()
+            })),
+            projectiles: this.projectiles.map(projectile => ({
+                x: projectile.body.position.x,
+                y: projectile.body.position.y,
+                isDestroyed: projectile.isDestroyed,
+                size: projectile.getSize()
+            })),
             bounds: {
                 width: this.app.screen.width,
                 height: this.app.screen.height
@@ -909,9 +987,7 @@ export class Engine {
                 y: this.cameraTarget.position.y
             } : null
         };
-    }
-
-    private spawnEnemy(x: number, y: number, config?: EnemyConfig): void {
+    } private spawnEnemy(x: number, y: number, config?: EnemyConfig): void {
         const defaultConfig: EnemyConfig = config || {
             size: 20,
             speed: 0.0005,
@@ -925,8 +1001,312 @@ export class Engine {
     }
 
     public addRandomEnemy(): void {
-        const x = Math.random() * this.app.screen.width / this.zoomLevel + -this.cameraOffset.x;
-        const y = Math.random() * this.app.screen.height / this.zoomLevel + -this.cameraOffset.y;
-        this.spawnEnemy(x, y);
+        // Spawn enemy outside the current view area
+        const spawnDistance = 500; // Distance from player to spawn
+        const angle = Math.random() * Math.PI * 2;
+
+        let spawnX = spawnDistance * Math.cos(angle);
+        let spawnY = spawnDistance * Math.sin(angle);
+
+        if (this.player) {
+            spawnX += this.player.body.position.x;
+            spawnY += this.player.body.position.y;
+        }
+
+        this.spawnEnemy(spawnX, spawnY);
     }
+
+    public spawnEnemyWave(count: number = 5): void {
+        for (let i = 0; i < count; i++) {
+            // Delay spawning to create a wave effect
+            setTimeout(() => {
+                this.addRandomEnemy();
+            }, i * 500); // 500ms between each spawn
+        }
+    }
+
+    public spawnEnemyLegion(size: 8 | 80 | 800 = 8): void {
+        // Spawn enemies in formation according to "Legionary" structure
+        const formations = {
+            8: { rows: 2, cols: 4, spacing: 60 },
+            80: { rows: 8, cols: 10, spacing: 80 },
+            800: { rows: 20, cols: 40, spacing: 100 }
+        };
+
+        const formation = formations[size];
+        const spawnDistance = 800;
+        const angle = Math.random() * Math.PI * 2;
+
+        let centerX = spawnDistance * Math.cos(angle);
+        let centerY = spawnDistance * Math.sin(angle);
+
+        if (this.player) {
+            centerX += this.player.body.position.x;
+            centerY += this.player.body.position.y;
+        }
+
+        // Create formation
+        for (let row = 0; row < formation.rows; row++) {
+            for (let col = 0; col < formation.cols; col++) {
+                const x = centerX + (col - formation.cols / 2) * formation.spacing;
+                const y = centerY + (row - formation.rows / 2) * formation.spacing;
+
+                // Vary enemy types and health based on legion size
+                const config: EnemyConfig = {
+                    size: 15 + Math.random() * 10,
+                    speed: 0.0003 + Math.random() * 0.0005,
+                    health: size === 8 ? 30 : size === 80 ? 50 : 80,
+                    color: size === 8 ? 0xff4444 : size === 80 ? 0xff8800 : 0xff0000
+                };
+
+                this.spawnEnemy(x, y, config);
+            }
+        }
+    }
+
+    public clearAllEnemies(): void {
+        this.enemies.forEach(enemy => {
+            Matter.Composite.remove(this.engine.world, enemy.body);
+            this.gameContainer.removeChild(enemy.graphic);
+        });
+        this.enemies = [];
+    }
+
+    // Turret management methods
+    private spawnTurret(x: number, y: number, config?: TurretConfig): void {
+        const defaultConfig: TurretConfig = config || {
+            size: 25,
+            health: 100,
+            color: 0x888888,
+            fireRate: 1500, // 1.5 seconds between shots
+            range: 300, // 300 pixel range
+            damage: 15,
+            projectileSpeed: 3
+        };
+
+        const turret = new StaticTurret(x, y, defaultConfig);
+
+        // Set up turret projectile callback
+        turret.onProjectileCreated = (projectile) => {
+            this.projectiles.push(projectile);
+            Matter.Composite.add(this.engine.world, projectile.body);
+            this.gameContainer.addChild(projectile.graphic as any);
+        };
+
+        this.turrets.push(turret);
+        Matter.Composite.add(this.engine.world, turret.body);
+        this.gameContainer.addChild(turret.graphic as any);
+    }
+
+    public addRandomTurret(): void {
+        // Spawn turret at strategic position around player
+        const spawnDistance = 600; // Distance from player to spawn
+        const angle = Math.random() * Math.PI * 2;
+
+        let spawnX = spawnDistance * Math.cos(angle);
+        let spawnY = spawnDistance * Math.sin(angle);
+
+        if (this.player) {
+            spawnX += this.player.body.position.x;
+            spawnY += this.player.body.position.y;
+        }
+
+        this.spawnTurret(spawnX, spawnY);
+    }
+
+    public spawnTurretDefenseGrid(count: number = 4): void {
+        // Create a defensive grid of turrets around the player
+        const radius = 800;
+        const angleStep = (Math.PI * 2) / count;
+
+        for (let i = 0; i < count; i++) {
+            const angle = i * angleStep;
+            let x = radius * Math.cos(angle);
+            let y = radius * Math.sin(angle);
+
+            if (this.player) {
+                x += this.player.body.position.x;
+                y += this.player.body.position.y;
+            }
+
+            // Create different turret types for variety
+            const turretType = Math.floor(Math.random() * 3);
+            let config: TurretConfig;
+
+            switch (turretType) {
+                case 0: // Standard turret
+                    config = {
+                        size: 25,
+                        health: 80,
+                        color: 0x888888,
+                        fireRate: 1200,
+                        range: 250,
+                        damage: 12,
+                        projectileSpeed: 3.5
+                    };
+                    break;
+                case 1: // Heavy turret
+                    config = {
+                        size: 35,
+                        health: 150,
+                        color: 0x666666,
+                        fireRate: 2000,
+                        range: 350,
+                        damage: 25,
+                        projectileSpeed: 2.5
+                    };
+                    break;
+                case 2: // Rapid-fire turret
+                    config = {
+                        size: 20,
+                        health: 60,
+                        color: 0xaa8888,
+                        fireRate: 800,
+                        range: 200,
+                        damage: 8,
+                        projectileSpeed: 4
+                    };
+                    break;
+                default:
+                    config = {
+                        size: 25,
+                        health: 80,
+                        color: 0x888888,
+                        fireRate: 1200,
+                        range: 250,
+                        damage: 12,
+                        projectileSpeed: 3.5
+                    };
+            }
+
+            this.spawnTurret(x, y, config);
+        }
+    }
+
+    public clearAllTurrets(): void {
+        this.turrets.forEach(turret => {
+            Matter.Composite.remove(this.engine.world, turret.body);
+            this.gameContainer.removeChild(turret.graphic);
+        });
+        this.turrets = [];
+    }
+
+    private setupCollisionDetection(): void {
+        // Set up collision event listeners
+        Matter.Events.on(this.engine, 'collisionStart', (event) => {
+            const pairs = event.pairs;
+
+            for (const pair of pairs) {
+                const { bodyA, bodyB } = pair;
+
+                // Get entity references from bodies
+                const entityA = (bodyA as any).entity;
+                const entityB = (bodyB as any).entity;
+
+                if (!entityA || !entityB) continue;
+
+                // Handle different collision types
+                this.handleCollision(bodyA, bodyB, entityA, entityB);
+            }
+        });
+    }
+
+    private handleCollision(bodyA: Matter.Body, bodyB: Matter.Body, entityA: any, entityB: any): void {
+        // Projectile vs Enemy
+        if ((bodyA.label === 'projectile' && bodyB.label === 'enemy') ||
+            (bodyA.label === 'enemy' && bodyB.label === 'projectile')) {
+
+            const projectile = bodyA.label === 'projectile' ? entityA : entityB;
+            const enemy = bodyA.label === 'enemy' ? entityA : entityB;
+
+            if (!projectile.isDestroyed && !enemy.isDestroyed) {
+                enemy.takeDamage(projectile.getDamage());
+                projectile.destroy();
+
+                // Remove projectile from world and arrays
+                Matter.Composite.remove(this.engine.world, projectile.body);
+                this.gameContainer.removeChild(projectile.graphic);
+                const projIndex = this.projectiles.indexOf(projectile);
+                if (projIndex > -1) {
+                    this.projectiles.splice(projIndex, 1);
+                }
+            }
+        }
+
+        // Projectile vs Turret
+        else if ((bodyA.label === 'projectile' && bodyB.label === 'turret') ||
+            (bodyA.label === 'turret' && bodyB.label === 'projectile')) {
+
+            const projectile = bodyA.label === 'projectile' ? entityA : entityB;
+            const turret = bodyA.label === 'turret' ? entityA : entityB;
+
+            if (!projectile.isDestroyed && !turret.isDestroyed) {
+                turret.takeDamage(projectile.getDamage());
+                projectile.destroy();
+
+                // Remove projectile from world and arrays
+                Matter.Composite.remove(this.engine.world, projectile.body);
+                this.gameContainer.removeChild(projectile.graphic);
+                const projIndex = this.projectiles.indexOf(projectile);
+                if (projIndex > -1) {
+                    this.projectiles.splice(projIndex, 1);
+                }
+            }
+        }
+
+        // Player vs Enemy
+        else if ((bodyA.label === 'player' && bodyB.label === 'enemy') ||
+            (bodyA.label === 'enemy' && bodyB.label === 'player')) {
+
+            const player = bodyA.label === 'player' ? entityA : entityB;
+            const enemy = bodyA.label === 'enemy' ? entityA : entityB;
+
+            if (!player.isDestroyed && !enemy.isDestroyed) {
+                // Apply damage to enemy from ramming
+                enemy.takeDamage(25);
+
+                // Apply knockback force to separate them
+                const dx = player.body.position.x - enemy.body.position.x;
+                const dy = player.body.position.y - enemy.body.position.y;
+                const magnitude = Math.hypot(dx, dy);
+
+                if (magnitude > 0) {
+                    const force = 0.002;
+                    const fx = (dx / magnitude) * force;
+                    const fy = (dy / magnitude) * force;
+
+                    Matter.Body.applyForce(player.body, player.body.position, { x: fx, y: fy });
+                    Matter.Body.applyForce(enemy.body, enemy.body.position, { x: -fx, y: -fy });
+                }
+            }
+        }
+
+        // Player vs Turret
+        else if ((bodyA.label === 'player' && bodyB.label === 'turret') ||
+            (bodyA.label === 'turret' && bodyB.label === 'player')) {
+
+            const player = bodyA.label === 'player' ? entityA : entityB;
+            const turret = bodyA.label === 'turret' ? entityA : entityB;
+
+            if (!player.isDestroyed && !turret.isDestroyed) {
+                // Apply damage to turret from ramming
+                turret.takeDamage(35); // Higher damage since turrets are tougher
+
+                // Apply knockback force to player (turrets are static)
+                const dx = player.body.position.x - turret.body.position.x;
+                const dy = player.body.position.y - turret.body.position.y;
+                const magnitude = Math.hypot(dx, dy);
+
+                if (magnitude > 0) {
+                    const force = 0.003; // Stronger force since turrets are static
+                    const fx = (dx / magnitude) * force;
+                    const fy = (dy / magnitude) * force;
+
+                    Matter.Body.applyForce(player.body, player.body.position, { x: fx, y: fy });
+                }
+            }
+        }
+    }
+
+    // ...existing code...
 }

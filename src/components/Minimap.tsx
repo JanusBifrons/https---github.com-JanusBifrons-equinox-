@@ -137,7 +137,81 @@ const Minimap: React.FC<MinimapProps> = ({ engine, gameMode }) => {
                         obj.y * scale + offsetY
                     );
                     app.stage.addChild(objDot);
-                });// Draw player (on top)
+                });
+
+                // Draw enemies
+                if (minimapData.enemies) {
+                    minimapData.enemies.forEach((enemy: { x: number; y: number; isDestroyed: boolean; size: number }) => {
+                        if (enemy.isDestroyed) return;
+
+                        const enemyDot = new PIXI.Graphics();
+                        enemyDot.beginFill(0xff4444, 0.8);
+                        enemyDot.drawCircle(0, 0, 2);
+                        enemyDot.endFill();
+
+                        // Add red glow for enemies
+                        enemyDot.lineStyle(1, 0xff0000, 0.4);
+                        enemyDot.drawCircle(0, 0, 3);
+
+                        enemyDot.position.set(
+                            enemy.x * scale + offsetX,
+                            enemy.y * scale + offsetY
+                        );
+                        app.stage.addChild(enemyDot);
+                    });
+                }
+
+                // Draw turrets
+                if (minimapData.turrets) {
+                    minimapData.turrets.forEach((turret: { x: number; y: number; isDestroyed: boolean; size: number; range: number }) => {
+                        if (turret.isDestroyed) return;
+
+                        // Draw turret range (faint circle)
+                        const rangeDot = new PIXI.Graphics();
+                        rangeDot.beginFill(0x888888, 0.1);
+                        rangeDot.drawCircle(0, 0, turret.range * scale);
+                        rangeDot.endFill();
+                        rangeDot.position.set(
+                            turret.x * scale + offsetX,
+                            turret.y * scale + offsetY
+                        );
+                        app.stage.addChild(rangeDot);
+
+                        // Draw turret (gray/silver)
+                        const turretDot = new PIXI.Graphics();
+                        turretDot.beginFill(0xaaaaaa, 0.8);
+                        turretDot.drawCircle(0, 0, Math.max(2, turret.size * scale * 0.3));
+                        turretDot.endFill();
+
+                        // Outer ring for visibility
+                        turretDot.lineStyle(1, 0xdddddd, 0.6);
+                        turretDot.drawCircle(0, 0, Math.max(3, turret.size * scale * 0.4));
+
+                        turretDot.position.set(
+                            turret.x * scale + offsetX,
+                            turret.y * scale + offsetY
+                        );
+                        app.stage.addChild(turretDot);
+                    });
+                }
+
+                // Draw projectiles
+                if (minimapData.projectiles) {
+                    minimapData.projectiles.forEach((projectile: { x: number; y: number; isDestroyed: boolean; size: number }) => {
+                        if (projectile.isDestroyed) return;
+
+                        const projDot = new PIXI.Graphics();
+                        projDot.beginFill(0x00ffff, 0.6);
+                        projDot.drawCircle(0, 0, 1);
+                        projDot.endFill();
+
+                        projDot.position.set(
+                            projectile.x * scale + offsetX,
+                            projectile.y * scale + offsetY
+                        );
+                        app.stage.addChild(projDot);
+                    });
+                }// Draw player (on top)
                 if (minimapData.player && !minimapData.player.isDestroyed) {
                     // Player glow effect
                     const playerGlow = new PIXI.Graphics();

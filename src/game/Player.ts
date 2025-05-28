@@ -2,6 +2,7 @@ import * as PIXI from 'pixi.js';
 import * as Matter from 'matter-js';
 import { ShipPart, ShipComponents, ShipColor, PartType } from './ShipParts';
 import { Projectile, ProjectileConfig } from './Projectile';
+import { ShieldBubble, ShieldConfig } from './ShieldBubble';
 
 export interface PlayerConfig {
     thrust: number;
@@ -52,6 +53,7 @@ export class Player {
     private _isDestroyed = false;
     private _stats: ShipStats; private lastSpeed: number = 0;
     private accelerationValue: number = 0;
+    private shield?: ShieldBubble;
 
     constructor(x: number, y: number, config: PlayerConfig) {
         this.config = config;
@@ -65,20 +67,21 @@ export class Player {
 
         // Create container for ship parts
         this.container = new PIXI.Container();
-        this.container.position.set(x, y);
-
-        // Create composite ship body
+        this.container.position.set(x, y);        // Create composite ship body
         const vertices = this.createShipVertices(config.size);
         this.body = Matter.Bodies.fromVertices(x, y, [vertices], {
             friction: 0,
             frictionAir: config.frictionAir,
             restitution: 0.8,
-            mass: 1
+            mass: 1,
+            label: 'player'
         });
 
-        // Set up the composite ship
+        // Store reference to this player instance on the body for collision detection
+        (this.body as any).entity = this;// Set up the composite ship
         this.graphic = this.container;
         this.createShipParts(config);
+        this.initializeShield(config);
         this.setupControls();
     } public get isDestroyed(): boolean {
         return this._isDestroyed;
@@ -467,5 +470,58 @@ export class Player {
         const currentSpeed = this.getSpeed();
         this.accelerationValue = (currentSpeed - this.lastSpeed) * 60; // approximate per second
         this.lastSpeed = currentSpeed;
+    }
+
+    private initializeShield(config: PlayerConfig): void {
+        // Only add shield if ship has shield generator or is capital/assault type
+        const hasShieldGenerator = config.enabledParts?.shieldGenerator;
+        const hasShieldCapability = ['capital', 'assault', 'phantomInterceptor'].includes(config.shipType || '');
+
+        if (hasShieldGenerator || hasShieldCapability) {
+            const shieldConfig: ShieldConfig = {
+                radius: config.size * 1.8, // Shield extends beyond ship
+                strength: this.getShieldStrengthForShipType(config.shipType),
+                rechargeRate: this.getShieldRechargeForShipType(config.shipType),
+                rechargeDelay: 3000, // 3 seconds delay before recharge
+                color: this.getShieldColorForShipType(config.shipType),
+                opacity: 0.4
+            };
+
+            this.shield = new ShieldBubble(shieldConfig);
+            this.container.addChild(this.shield.graphic);
+        }
+    }
+
+    private getShieldStrengthForShipType(shipType?: string): number {
+        switch (shipType) {
+            case 'capital': return 200;
+            case 'assault': return 150;
+            case 'phantomInterceptor': return 100;
+            case 'strikeInterceptor': return 80;
+            case 'razorInterceptor': return 60;
+            default: return 100;
+        }
+    }
+
+    private getShieldRechargeForShipType(shipType?: string): number {
+        switch (shipType) {
+            case 'capital': return 20; // 20 points per second
+            case 'assault': return 15;
+            case 'phantomInterceptor': return 25; // Fast recharge for stealth
+            case 'strikeInterceptor': return 18;
+            case 'razorInterceptor': return 12;
+            default: return 15;
+        }
+    }
+
+    private getShieldColorForShipType(shipType?: string): number {
+        switch (shipType) {
+            case 'capital': return 0x0088ff; // Blue
+            case 'assault': return 0xff4444; // Red
+            case 'phantomInterceptor': return 0x8844ff; // Purple
+            case 'strikeInterceptor': return 0x44ff44; // Green
+            case 'razorInterceptor': return 0xffff44; // Yellow
+            default: return 0x00ffff; // Cyan
+        }
     }
 }

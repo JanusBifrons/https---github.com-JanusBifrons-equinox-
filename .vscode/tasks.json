@@ -2,9 +2,12 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Start Development Server",
+			"label": "dev-server",
 			"type": "shell",
-			"command": "npm start",
+			"command": "npm",
+			"args": [
+				"start"
+			],
 			"group": "build",
 			"isBackground": true,
 			"problemMatcher": []

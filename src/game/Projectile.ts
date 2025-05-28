@@ -18,16 +18,18 @@ export class Projectile {
 
     constructor(x: number, y: number, angle: number, config: ProjectileConfig) {
         this.config = config;
-        this.createdAt = Date.now();
-
-        // Create physics body
+        this.createdAt = Date.now();        // Create physics body
         this.body = Matter.Bodies.circle(x, y, config.size, {
             friction: 0,
             frictionAir: 0,
             restitution: 0.1,
             isSensor: true, // Projectiles don't collide with other objects physically
-            mass: 0.1
+            mass: 0.1,
+            label: 'projectile'
         });
+
+        // Store reference to this projectile instance on the body for collision detection
+        (this.body as any).entity = this;
 
         // Set initial velocity based on angle and speed
         const velocity = {
@@ -85,5 +87,9 @@ export class Projectile {
 
     public getDamage(): number {
         return this.config.damage;
+    }
+
+    public getSize(): number {
+        return this.config.size;
     }
 }

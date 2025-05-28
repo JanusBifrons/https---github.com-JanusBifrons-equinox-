@@ -16,14 +16,17 @@ export class Enemy {
     private _isDestroyed = false;
 
     constructor(x: number, y: number, config: EnemyConfig) {
-        this.config = config;
-        // Create physics body
+        this.config = config;        // Create physics body
         this.body = Matter.Bodies.circle(x, y, config.size, {
             friction: 0.05,
             frictionAir: 0.05,
             restitution: 0.2,
-            mass: 1
+            mass: 1,
+            label: 'enemy'
         });
+
+        // Store reference to this enemy instance on the body for collision detection
+        (this.body as any).entity = this;
 
         // Graphics: draw simple triangle ship
         this.graphic = new PIXI.Graphics();
