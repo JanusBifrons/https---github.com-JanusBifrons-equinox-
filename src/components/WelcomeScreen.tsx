@@ -106,13 +106,27 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStartGame }) => {
                                 onClick={() => onStartGame('survival')}
                             >
                                 Survival Mode
-                            </Button>
-                            <Button
+                            </Button>                            <Button
                                 variant="outlined"
                                 color="primary"
                                 onClick={() => onStartGame('practice')}
                             >
                                 Practice Mode
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                color="primary"
+                                onClick={() => onStartGame('test')}
+                                sx={{
+                                    borderColor: 'rgba(0, 255, 255, 0.5)',
+                                    color: 'cyan',
+                                    '&:hover': {
+                                        borderColor: 'cyan',
+                                        backgroundColor: 'rgba(0, 255, 255, 0.1)'
+                                    }
+                                }}
+                            >
+                                Test Ship Parts
                             </Button>
                         </Box>
                     </Paper>
