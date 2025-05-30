@@ -50,6 +50,7 @@ export class Engine {
     private graphics: PIXI.Graphics[] = [];
     private bodies: Matter.Body[] = [];
     private initialized = false; private backgroundContainer: PIXI.Container;
+    private worldGrid: PIXI.Graphics | null = null;
     private starsNear: PIXI.Container;
     private starsFar: PIXI.Container;
     private minimap: PIXI.Container;
@@ -86,58 +87,153 @@ export class Engine {
         this.starsFar = new PIXI.Container();
         this.gameContainer = new PIXI.Container();
         this.debugContainer = new PIXI.Container();
-        this.minimap = new PIXI.Container();
-
-        // Add containers in order (back to front)
+        this.minimap = new PIXI.Container();        // Add containers in order (back to front)
         this.app.stage.addChild(this.starsFar);
         this.app.stage.addChild(this.starsNear);
         this.app.stage.addChild(this.backgroundContainer);
         this.app.stage.addChild(this.gameContainer);
         this.app.stage.addChild(this.debugContainer);
-        this.app.stage.addChild(this.minimap);        // Add debug toggle
+        // Note: Minimap is now handled by React component
+        // this.app.stage.addChild(this.minimap);// Add debug toggle
         window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyD') {
                 this.showDebug = !this.showDebug;
                 this.debugContainer.visible = this.showDebug;
             }
         });
-    }
+    } private createGrid() {
+        console.log('Grid Debug - createGrid() called');
 
-    private createGrid() {
+        // Create grid graphics object
         const grid = new PIXI.Graphics();
+        this.worldGrid = grid;
 
-        // Different grid styles for each mode
+        // Make sure the background container is visible and properly set up
+        this.backgroundContainer.visible = true;
+        this.backgroundContainer.alpha = 1.0;
+
+        this.backgroundContainer.addChild(grid);
+        console.log('Grid Debug - Added grid to backgroundContainer');
+
+        // Make sure the grid itself is visible
+        this.worldGrid.visible = true;
+        this.worldGrid.alpha = 1.0;
+
+        // Initial grid draw
+        this.updateWorldGrid();
+        console.log('Grid Debug - Initial grid draw completed');
+    } private updateWorldGrid() {
+        if (!this.worldGrid) return;
+
+        // Clear previous grid
+        this.worldGrid.clear();        // Grid configuration - smaller scale for testing
+        const nSize = 100;         // Major grid size (distance between major lines) - much smaller for testing  
+        const nGridSize = 20;      // Number of major grid cells visible - more cells for visibility
+        const nSmallGridSize = 5;  // Number of minor grid cells per major cell - fewer subdivisions
+        const nThick = 4;          // Major line width
+        const nThin = 1;           // Minor line width
+
+        // Calculate offset in backgroundContainer's local space
+        // The grid draws in the backgroundContainer's coordinate system
+        const offsetX = this.cameraTarget ? this.cameraTarget.position.x : 0;
+        const offsetY = this.cameraTarget ? this.cameraTarget.position.y : 0;
+
+        console.log('Grid Debug - Drawing grid at offset:', offsetX, offsetY);
+
+        // DEBUG: Draw a simple test rectangle at the origin to verify rendering
+        this.worldGrid.lineStyle(3, 0xFF0000, 1.0);
+        this.worldGrid.drawRect(-50, -50, 100, 100);
+        console.log('Grid Debug - Drew test rectangle at origin');
+
+        // DEBUG: Draw a simple test rectangle at the origin to verify rendering
+        this.worldGrid.lineStyle(3, 0xFF0000, 1.0);
+        this.worldGrid.drawRect(-50, -50, 100, 100);
+        console.log('Grid Debug - Drew test rectangle at origin');
+
+        // Calculate grid starting position (matching your Grid class formula)
+        let nX = (Math.round(offsetX / nSize) * nSize) - (nSize * (nGridSize / 2));
+        let nY = (Math.round(offsetY / nSize) * nSize) - (nSize * (nGridSize / 2));
+
+        // Different grid colors for each game mode
+        let gridColor = 0x444444;
+        let gridAlpha = 0.6;
+
         switch (this.gameMode) {
             case 'practice':
-                // Lighter, more visible grid for practice mode
-                grid.lineStyle(1, 0x444444, 0.4);
+                gridColor = 0x4488FF; // Blue tint
+                gridAlpha = 0.5;
                 break;
             case 'survival':
-                // Red tinted grid for survival mode
-                grid.lineStyle(1, 0x330000, 0.3);
+                gridColor = 0xFF4444; // Red tint
+                gridAlpha = 0.4;
+                break;
+            case 'test':
+                gridColor = 0x88FF88; // Green tint
+                gridAlpha = 0.7;
                 break;
             case 'classic':
             default:
-                // Standard grid
-                grid.lineStyle(1, 0x333333, 0.3);
+                gridColor = 0x888888; // Gray
+                gridAlpha = 0.3;
                 break;
         }
 
-        const gridSize = this.gameMode === 'practice' ? 100 : 50; // Larger grid for practice mode
+        // Draw grid exactly like your Grid class
+        this.worldGrid.lineStyle(nThick, gridColor, gridAlpha);
 
-        // Draw vertical lines
-        for (let x = 0; x <= this.app.screen.width; x += gridSize) {
-            grid.moveTo(x, 0);
-            grid.lineTo(x, this.app.screen.height);
+        // Draw first two major lines (initial frame)
+        this.worldGrid.moveTo(nX, nY);
+        this.worldGrid.lineTo(nX + (nSize * nGridSize), nY);
+        this.worldGrid.moveTo(nX, nY);
+        this.worldGrid.lineTo(nX, nY + (nSize * nGridSize));
+
+        // Draw the grid pattern
+        for (let i = 0; i < nGridSize; i++) {
+            let nSmallX = nX;
+            let nSmallY = nY;
+
+            // Draw minor vertical lines
+            this.worldGrid.lineStyle(nThin, gridColor, gridAlpha * 0.6);
+            for (let j = 0; j < nSmallGridSize; j++) {
+                this.worldGrid.moveTo(nSmallX, nSmallY);
+                this.worldGrid.lineTo(nSmallX + (nSize * nGridSize), nSmallY);
+                nSmallY += (nSize / nSmallGridSize);
+            }
+
+            nY += nSize;
+
+            // Draw major horizontal line
+            this.worldGrid.lineStyle(nThick, gridColor, gridAlpha);
+            this.worldGrid.moveTo(nX, nY);
+            this.worldGrid.lineTo(nX + (nSize * nGridSize), nY);
         }
 
-        // Draw horizontal lines
-        for (let y = 0; y <= this.app.screen.height; y += gridSize) {
-            grid.moveTo(0, y);
-            grid.lineTo(this.app.screen.width, y);
+        // Reset for vertical lines
+        nX = (Math.round(offsetX / nSize) * nSize) - (nSize * (nGridSize / 2));
+        nY = (Math.round(offsetY / nSize) * nSize) - (nSize * (nGridSize / 2));
+
+        // Draw vertical grid lines
+        for (let i = 0; i < nGridSize; i++) {
+            let nSmallX = nX;
+            let nSmallY = nY;
+
+            // Draw minor horizontal lines within each major cell
+            this.worldGrid.lineStyle(nThin, gridColor, gridAlpha * 0.6);
+            for (let j = 0; j < nSmallGridSize; j++) {
+                this.worldGrid.moveTo(nSmallX, nSmallY);
+                this.worldGrid.lineTo(nSmallX, nSmallY + (nSize * nGridSize));
+                nSmallX += (nSize / nSmallGridSize);
+            }
+
+            nX += nSize;
+
+            // Draw major vertical line
+            this.worldGrid.lineStyle(nThick, gridColor, gridAlpha);
+            this.worldGrid.moveTo(nX, nY);
+            this.worldGrid.lineTo(nX, nY + (nSize * nGridSize));
         }
 
-        this.backgroundContainer.addChild(grid);
+        console.log('Grid Debug - Finished drawing grid');
     }
 
     private createStars() {
@@ -181,104 +277,13 @@ export class Engine {
             this.starsNear.addChild(star);
         }
     } private createMinimap() {
-        // Clear any existing minimap objects
+        // Minimap functionality is now handled by React component
+        // This method is kept for compatibility but does nothing
         this.minimap.removeChildren();
         this.minimapObjects = [];
-
-        if (this.gameMode === 'test') {
-            this.createTestModeMinimap();
-            // Add player object to minimap in test mode
-            if (this.player) {
-                const playerMinimap = new PIXI.Graphics();
-                playerMinimap.beginFill(0x00ffff);
-                playerMinimap.drawCircle(0, 0, 3);
-                playerMinimap.endFill();
-                this.minimap.addChild(playerMinimap);
-                this.minimapObjects.push(playerMinimap);
-            }
-            return;
-        }
-
-        // Create minimap background
-        const minimapSize = 150;
-        const padding = 10;
-        const background = new PIXI.Graphics();
-        background.beginFill(0x000000, 0.5);
-        background.lineStyle(1, 0x444444);
-        background.drawRect(
-            this.app.screen.width - minimapSize - padding,
-            padding,
-            minimapSize,
-            minimapSize
-        );
-        background.endFill();
-        this.minimap.addChild(background);
-
-        // Create minimap objects
-        this.bodies.forEach((body, i) => {
-            const minimapObject = new PIXI.Graphics();
-            minimapObject.beginFill(this.graphics[i].tint);
-            minimapObject.drawCircle(0, 0, 2);
-            minimapObject.endFill();
-            this.minimap.addChild(minimapObject);
-            this.minimapObjects.push(minimapObject);
-        });
     } private createTestModeMinimap() {
-        // Create a larger minimap for test mode
-        const minimapSize = 200;
-        const padding = 10;
-        const background = new PIXI.Graphics();
-        background.beginFill(0x000000, 0.3);
-        background.lineStyle(2, 0x00ffff);
-        background.drawRect(
-            padding,
-            this.app.screen.height - minimapSize - padding,
-            minimapSize,
-            minimapSize
-        );
-        background.endFill();
-
-        // Add title
-        const title = new PIXI.Text('Ship Stats', {
-            fontFamily: 'Press Start 2P',
-            fontSize: 10,
-            fill: 0x00ffff
-        }); title.position.set(
-            padding + 10,
-            this.app.screen.height - minimapSize - padding + 10
-        );
-
-        // Add ship info display
-        const shipInfo = new PIXI.Text('', {
-            fontFamily: 'Press Start 2P',
-            fontSize: 8,
-            fill: 0x00ffff,
-            lineHeight: 15
-        });
-        shipInfo.position.set(
-            padding + 10,
-            this.app.screen.height - minimapSize - padding + 30
-        );
-
-        // Update ship info every frame
-        this.app.ticker.add(() => {
-            if (this.player) {
-                const velocity = this.player.body.velocity;
-                const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-                const angle = (this.player.body.angle * 180 / Math.PI).toFixed(1);
-
-                shipInfo.text =
-                    `Type: ${this.shipConfig.type}\n` +
-                    `Color: ${this.shipConfig.color}\n` +
-                    `Speed: ${speed.toFixed(2)}\n` +
-                    `Angle: ${angle}°\n` +
-                    `Zoom: ${this.zoomLevel.toFixed(1)}x`;
-            }
-        });
-
-        this.minimap.addChild(background);
-        this.minimap.addChild(title);
-        this.minimap.addChild(shipInfo);
+        // Test mode minimap is now handled by React component
+        // This method is kept for compatibility but does nothing
     }
 
     private renderDebug() {
@@ -357,13 +362,34 @@ export class Engine {
             }
             return alive;
         });
-    }
-
-    private updateCamera() {
+    } private updateCamera() {
         if (!this.cameraTarget) return;
         if (this.gameMode === 'test') {
             this.updateTestModeCamera();
         } else {
+            // Calculate dynamic zoom based on player speed and acceleration
+            if (this.player) {
+                const speed = this.player.getSpeed();
+                const acceleration = Math.abs(this.player.getAcceleration());
+
+                // Dynamic zoom calculation
+                const speedFactor = Math.min(speed / 300, 1); // Normalize speed to 0-1
+                const accelFactor = Math.min(acceleration / 400, 1); // Normalize acceleration to 0-1
+                const combinedFactor = Math.max(speedFactor, accelFactor * 0.7); // Acceleration has less impact
+
+                // Zoom out when moving fast/accelerating, zoom in when slow
+                const baseZoom = 0.6; // Base zoom level
+                const minDynamicZoom = 0.3; // Never zoom in too tight
+                const maxDynamicZoom = 1.2; // Maximum zoom out
+
+                const dynamicZoom = baseZoom - (combinedFactor * (baseZoom - minDynamicZoom));
+                const clampedZoom = Math.max(minDynamicZoom, Math.min(maxDynamicZoom, dynamicZoom));
+
+                // Apply manual zoom from scroll wheel on top of dynamic zoom
+                this.targetZoomLevel = clampedZoom + (this.targetZoomLevel - 0.5) * 0.3;
+                this.targetZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.targetZoomLevel));
+            }
+
             // Smooth zoom interpolation
             const zoomSmoothing = 0.1; // Slower transition for smoother zoom
             this.zoomLevel += (this.targetZoomLevel - this.zoomLevel) * zoomSmoothing;
@@ -382,23 +408,29 @@ export class Engine {
 
             // Update container positions
             this.gameContainer.position.set(this.cameraOffset.x, this.cameraOffset.y);
-            this.debugContainer.position.set(this.cameraOffset.x, this.cameraOffset.y);
-
-            // Update grid position with parallax (slower movement)
+            this.debugContainer.position.set(this.cameraOffset.x, this.cameraOffset.y);            // Update grid position with parallax (slower movement)
             this.backgroundContainer.position.set(
                 this.cameraOffset.x * 0.8,
                 this.cameraOffset.y * 0.8
             );
 
-            // Update stars position with different parallax speeds
+            // Update world grid based on camera position
+            this.updateWorldGrid();
+
+            // Update stars position with different parallax speeds adjusted for zoom
+            const starParallaxFactor = 1 / this.zoomLevel; // Adjust parallax based on zoom
             this.starsFar.position.set(
-                this.cameraOffset.x * 0.2,
-                this.cameraOffset.y * 0.2
+                this.cameraOffset.x * 0.2 * starParallaxFactor,
+                this.cameraOffset.y * 0.2 * starParallaxFactor
             );
             this.starsNear.position.set(
-                this.cameraOffset.x * 0.4,
-                this.cameraOffset.y * 0.4
+                this.cameraOffset.x * 0.4 * starParallaxFactor,
+                this.cameraOffset.y * 0.4 * starParallaxFactor
             );
+
+            // Apply zoom to star containers for proper scaling
+            this.starsFar.scale.set(this.zoomLevel * 0.5);
+            this.starsNear.scale.set(this.zoomLevel * 0.7);
         }
     } public async initialize() {
         if (this.initialized) return;        // Initialize PIXI with configuration
@@ -510,51 +542,8 @@ export class Engine {
             }
         });
     } private updateMinimap() {
-        if (this.minimapObjects.length === 0) return;
-
-        const minimapSize = this.gameMode === 'test' ? 200 : 150;
-        const padding = 10;
-        const scale = minimapSize / Math.max(this.app.screen.width, this.app.screen.height);
-
-        if (this.gameMode === 'test') {            // Update positions of all objects
-            this.bodies.forEach((body, i) => {
-                if (i < this.minimapObjects.length) {
-                    const minimapObject = this.minimapObjects[i];
-                    minimapObject.position.set(
-                        padding + body.position.x * scale,
-                        this.app.screen.height - minimapSize - padding + body.position.y * scale
-                    );
-                }
-            });
-
-            // Create new minimap objects for destroyed ship parts
-            if (this.player?.isDestroyed) {
-                const destroyedParts = this.bodies.slice(this.minimapObjects.length);
-                destroyedParts.forEach(body => {
-                    const minimapObject = new PIXI.Graphics();
-                    minimapObject.beginFill(0xFF0000);
-                    minimapObject.drawCircle(0, 0, 2);
-                    minimapObject.endFill();
-                    minimapObject.position.set(
-                        padding + body.position.x * scale,
-                        this.app.screen.height - minimapSize - padding + body.position.y * scale
-                    );
-                    this.minimap.addChild(minimapObject);
-                    this.minimapObjects.push(minimapObject);
-                });
-            }
-        } else {
-            // Normal mode update for all objects
-            this.bodies.forEach((body, i) => {
-                if (i < this.minimapObjects.length) {
-                    const minimapObject = this.minimapObjects[i];
-                    minimapObject.position.set(
-                        this.app.screen.width - minimapSize - padding + body.position.x * scale,
-                        padding + body.position.y * scale
-                    );
-                }
-            });
-        }
+        // Minimap updating is now handled by React component
+        // This method is kept for compatibility but does nothing
     } public getView(): HTMLCanvasElement {
         if (!this.initialized) {
             throw new Error('Engine must be initialized before getting view');
@@ -566,9 +555,7 @@ export class Engine {
         if (!this.initialized) return;
 
         // Resize the renderer
-        this.app.renderer.resize(window.innerWidth, window.innerHeight);
-
-        // Recreate the grid at new size
+        this.app.renderer.resize(window.innerWidth, window.innerHeight);        // Recreate the grid at new size
         this.backgroundContainer.removeChildren();
         this.createGrid();
 
@@ -664,33 +651,32 @@ export class Engine {
         }
     }
 
-    private getPlayerConfigForMode(): PlayerConfig {
-        // Base configuration for each mode
+    private getPlayerConfigForMode(): PlayerConfig {        // Base configuration for each mode - INCREASED BY 50x for faster gameplay
         const modeConfig = (() => {
             switch (this.gameMode) {
                 case 'test':
                     return {
-                        thrust: 0.0002,
+                        thrust: 0.01,       // 0.0002 * 50
                         rotationSpeed: 0.02,
-                        maxSpeed: 2,
+                        maxSpeed: 100,      // 2 * 50
                         frictionAir: 0.1,
                         size: 40,
                         reverseMultiplier: 1.0
                     };
                 case 'practice':
                     return {
-                        thrust: 0.0002,
+                        thrust: 0.01,       // 0.0002 * 50
                         rotationSpeed: 0.03,
-                        maxSpeed: 3,
+                        maxSpeed: 150,      // 3 * 50
                         frictionAir: 0.05,
                         size: 30,
                         reverseMultiplier: 0.8
                     };
                 case 'survival':
                     return {
-                        thrust: 0.0004,
+                        thrust: 0.02,       // 0.0004 * 50
                         rotationSpeed: 0.07,
-                        maxSpeed: 7,
+                        maxSpeed: 350,      // 7 * 50
                         frictionAir: 0.01,
                         size: 25,
                         reverseMultiplier: 0.3
@@ -698,9 +684,9 @@ export class Engine {
                 case 'classic':
                 default:
                     return {
-                        thrust: 0.0003,
+                        thrust: 0.015,      // 0.0003 * 50
                         rotationSpeed: 0.05,
-                        maxSpeed: 5,
+                        maxSpeed: 250,      // 5 * 50
                         frictionAir: 0.02,
                         size: 30,
                         reverseMultiplier: 0.5
@@ -932,19 +918,36 @@ export class Engine {
 
         // Apply ship centering immediately (no smoothing for centering)
         this.cameraOffset.x = targetX;
-        this.cameraOffset.y = targetY;
-
-        // Update all containers
+        this.cameraOffset.y = targetY;        // Update all containers
         this.gameContainer.position.set(this.cameraOffset.x, this.cameraOffset.y);
-        this.debugContainer.position.set(this.cameraOffset.x, this.cameraOffset.y);
-        this.backgroundContainer.position.set(this.cameraOffset.x, this.cameraOffset.y);
-        this.starsFar.position.set(this.cameraOffset.x, this.cameraOffset.y);
-        this.starsNear.position.set(this.cameraOffset.x, this.cameraOffset.y);
+        this.debugContainer.position.set(this.cameraOffset.x, this.cameraOffset.y);        // Update background with parallax
+        this.backgroundContainer.position.set(
+            this.cameraOffset.x * 0.8,
+            this.cameraOffset.y * 0.8
+        );
+
+        // Update world grid based on camera position
+        this.updateWorldGrid();
+
+        // Update stars with proper parallax and zoom scaling
+        const starParallaxFactor = 1 / this.zoomLevel;
+        this.starsFar.position.set(
+            this.cameraOffset.x * 0.2 * starParallaxFactor,
+            this.cameraOffset.y * 0.2 * starParallaxFactor
+        );
+        this.starsNear.position.set(
+            this.cameraOffset.x * 0.4 * starParallaxFactor,
+            this.cameraOffset.y * 0.4 * starParallaxFactor
+        );
+
+        // Apply zoom to star containers for proper scaling
+        this.starsFar.scale.set(this.zoomLevel * 0.5);
+        this.starsNear.scale.set(this.zoomLevel * 0.7);
+    } public getPlayer(): Player | null {
+        return this.player;
     }
 
-    public getPlayer(): Player | null {
-        return this.player;
-    } public getMinimapData() {
+    public getMinimapData() {
         return {
             player: this.player ? {
                 x: this.player.body.position.x,

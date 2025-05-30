@@ -71,34 +71,34 @@ interface ShipConfigPanelProps {
 // Define which parts each ship type uses for debugging
 const shipPartMappings: Record<ShipConfig['type'], { name: string; key: string }[]> = {
     compact: [
-        { name: 'Compact Ship Hull', key: 'compactShip' },
-        { name: 'Standard Wings', key: 'standardWings' },
-        { name: 'Vector Thrusters', key: 'vectorThrusters' }
+        { name: 'Compact Fighter Hull (5 shapes)', key: 'compactShip' },
+        { name: 'Basic Wings (6 rectangles)', key: 'standardWings' },
+        { name: 'Basic Thruster (5 shapes)', key: 'vectorThrusters' }
     ],
     assault: [
-        { name: 'Assault Ship Hull', key: 'assaultShip' },
-        { name: 'Assault Wings', key: 'assaultWings' },
-        { name: 'Dual Engine', key: 'dualEngine' }
+        { name: 'Assault Cruiser Hull (7 shapes)', key: 'assaultShip' },
+        { name: 'Delta Wings (5 triangles)', key: 'assaultWings' },
+        { name: 'Twin Engine (6 rectangles)', key: 'dualEngine' }
     ],
     capital: [
-        { name: 'Capital Ship Hull', key: 'capitalShip' },
-        { name: 'Quad Engine', key: 'quadEngine' },
-        { name: 'Side Cannons', key: 'sideCannons' }
+        { name: 'Capital Ship Hull (10 shapes)', key: 'capitalShip' },
+        { name: 'Quad Engine (7 rectangles)', key: 'quadEngine' },
+        { name: 'Twin Cannon (6 rectangles)', key: 'sideCannons' }
     ],
     razorInterceptor: [
-        { name: 'Razor Interceptor Hull', key: 'razorInterceptor' },
-        { name: 'Interceptor Wings', key: 'interceptorWings' },
-        { name: 'Interceptor Engine', key: 'interceptorEngine' }
+        { name: 'Compact Fighter Hull (5 shapes)', key: 'razorInterceptor' },
+        { name: 'Basic Wings (6 rectangles)', key: 'interceptorWings' },
+        { name: 'Single Engine (5 rectangles)', key: 'interceptorEngine' }
     ],
     strikeInterceptor: [
-        { name: 'Strike Interceptor Hull', key: 'strikeInterceptor' },
-        { name: 'Interceptor Wings', key: 'interceptorWings' },
-        { name: 'Interceptor Engine', key: 'interceptorEngine' }
+        { name: 'Compact Fighter Hull (5 shapes)', key: 'strikeInterceptor' },
+        { name: 'Basic Wings (6 rectangles)', key: 'interceptorWings' },
+        { name: 'Single Engine (5 rectangles)', key: 'interceptorEngine' }
     ],
     phantomInterceptor: [
-        { name: 'Phantom Interceptor Hull', key: 'phantomInterceptor' },
-        { name: 'Interceptor Wings', key: 'interceptorWings' },
-        { name: 'Interceptor Engine', key: 'interceptorEngine' }
+        { name: 'Compact Fighter Hull (5 shapes)', key: 'phantomInterceptor' },
+        { name: 'Basic Wings (6 rectangles)', key: 'interceptorWings' },
+        { name: 'Single Engine (5 rectangles)', key: 'interceptorEngine' }
     ]
 };
 

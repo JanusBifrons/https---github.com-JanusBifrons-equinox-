@@ -1,6 +1,12 @@
 import * as PIXI from 'pixi.js';
+import { GlowFilter } from '@pixi/filter-glow';
+import { BloomFilter } from '@pixi/filter-bloom';
+import { MotionBlurFilter } from '@pixi/filter-motion-blur';
+import { DisplacementFilter } from '@pixi/filter-displacement';
+import { OutlineFilter } from '@pixi/filter-outline';
 import { SpriteRenderer, DetailedPartConfig } from './SpriteRenderer';
 import { DetailedShipParts } from './DetailedShipParts';
+import { SimpleShipComponents } from './SimpleShipParts';
 
 export type ShipColor = 'red' | 'green' | 'blue' | 'orange';
 
@@ -36,6 +42,9 @@ export class ShipPart {
     private detailsGraphic: PIXI.Graphics;
     private useDetailedRendering: boolean = true; // Toggle for enhanced rendering
 
+    private isAfterburnerActive: boolean = false;
+    private afterburnerIntensity: number = 1.0;
+
     constructor(config: ShipPartConfig, useDetailed: boolean = true) {
         this.config = config;
         this.useDetailedRendering = useDetailed;
@@ -52,10 +61,12 @@ export class ShipPart {
         this.graphic.addChild(this.effectsContainer);
 
         this.createGraphics();
+    } public getVertices(): { x: number, y: number }[] {
+        return this.config.vertices;
     }
 
-    public getVertices(): { x: number, y: number }[] {
-        return this.config.vertices;
+    public getPartType(): PartType {
+        return this.config.type;
     }
 
     private getColorValue(color: ShipColor): { base: number, light: number, dark: number, glow: number } {
@@ -551,505 +562,318 @@ export class ShipPart {
 
         return testContainer;
     }
+
+    setAfterburnerState(active: boolean, intensity: number = 1.0): void {
+        // Add a slight delay when deactivating afterburner for a smoother visual transition
+        if (!active && this.isAfterburnerActive) {
+            // Schedule a delayed deactivation
+            setTimeout(() => {
+                this.isAfterburnerActive = active;
+                this.afterburnerIntensity = intensity;
+                this.updateTrailEffectsForAfterburner();
+            }, 150); // 150ms delay when turning off
+        } else {
+            // Immediate activation
+            this.isAfterburnerActive = active;
+            this.afterburnerIntensity = intensity;
+            this.updateTrailEffectsForAfterburner();
+        }
+    } private updateTrailEffectsForAfterburner(): void {
+        if (!this.effectsContainer || this.config.type !== PartType.ENGINE) return;
+
+        // Remove existing trail effects
+        this.effectsContainer.removeChildren();
+
+        const colors = this.getColorValue(this.config.color);
+        let coreColor, midColor, outerColor; if (this.isAfterburnerActive) {
+            // Enhanced colors for afterburner - more vibrant and noticeable
+            coreColor = 0x00FFFF; // Bright cyan
+            midColor = 0x0088FF;  // Electric blue  
+            outerColor = 0x4444FF; // Deep blue
+
+            // Add subtle color variation based on time for a more dynamic effect
+            const timeBasedVariation = Date.now() % 1000 / 1000; // 0 to 1 value that cycles every second
+            if (timeBasedVariation > 0.7) {
+                coreColor = 0xFFFFFF; // Occasional white flash in the core for "overheating" effect
+            }
+        } else {
+            // Normal engine colors
+            coreColor = colors.light;
+            midColor = colors.glow;
+            outerColor = colors.glow;
+        }
+
+        // Create new trail graphics with enhanced effects
+        const trailOuter = new PIXI.Graphics();
+        const trailMid = new PIXI.Graphics();
+        const trailCore = new PIXI.Graphics();
+
+        // For afterburner, make the trail much longer
+        const trailLengthMultiplier = this.isAfterburnerActive ? 2.0 : 1.0;
+
+        // Outer diffuse glow
+        trailOuter.beginFill(outerColor, this.isAfterburnerActive ? 0.4 * this.afterburnerIntensity : 0.15);
+        trailOuter.drawEllipse(
+            -26 - (this.isAfterburnerActive ? 10 : 0), // Move further back for afterburner
+            0,
+            (this.isAfterburnerActive ? 22 : 12) * trailLengthMultiplier,
+            this.isAfterburnerActive ? 12 : 7
+        );
+        trailOuter.endFill();
+
+        // Mid layer with color
+        trailMid.beginFill(midColor, this.isAfterburnerActive ? 0.6 * this.afterburnerIntensity : 0.3);
+        trailMid.drawEllipse(
+            -23 - (this.isAfterburnerActive ? 8 : 0), // Move further back for afterburner
+            0,
+            (this.isAfterburnerActive ? 16 : 8) * trailLengthMultiplier,
+            this.isAfterburnerActive ? 8 : 5
+        );
+        trailMid.endFill();
+
+        // Bright core
+        trailCore.beginFill(coreColor, this.isAfterburnerActive ? 0.8 * this.afterburnerIntensity : 0.4);
+        trailCore.drawEllipse(
+            -20 - (this.isAfterburnerActive ? 5 : 0), // Move further back for afterburner
+            0,
+            (this.isAfterburnerActive ? 8 : 4) * trailLengthMultiplier,
+            this.isAfterburnerActive ? 5 : 3
+        );
+        trailCore.endFill();
+        // Add flame particles for afterburner
+        if (this.isAfterburnerActive) {
+            // Add additional flame effects
+            const flameParticles = new PIXI.Container();
+
+            // Create several flame particles
+            for (let i = 0; i < 8; i++) { // Increased from 5 to 8 particles
+                const particle = new PIXI.Graphics();
+                const size = 2 + Math.random() * 3;
+                const distance = 15 + Math.random() * 30; // Increased range from 25 to 30
+                const yOffset = (Math.random() - 0.5) * 8; // Increased spread from 6 to 8
+
+                // Vary colors for realistic flame effect
+                const flameColors = [0x00FFFF, 0x0088FF, 0xFFFFFF, 0x80FFFF]; // Added light cyan color
+                const color = flameColors[Math.floor(Math.random() * flameColors.length)];
+
+                particle.beginFill(color, 0.6 + Math.random() * 0.4);
+                particle.drawCircle(-distance, yOffset, size);
+                particle.endFill();
+
+                // Add random animation parameters to each particle
+                (particle as any).animSpeed = 0.5 + Math.random() * 2;
+                (particle as any).animPhase = Math.random() * Math.PI * 2;
+                (particle as any).baseX = -distance;
+                (particle as any).baseY = yOffset;
+                (particle as any).size = size;
+                (particle as any).maxDistance = -distance - (Math.random() * 10); // For trailing effect
+
+                flameParticles.addChild(particle);
+            }
+
+            flameParticles.name = 'flameParticles';
+            this.effectsContainer.addChild(flameParticles);
+        }
+
+        // Enhanced filter effects during afterburner
+        if (this.isAfterburnerActive) {
+            // Apply filters with type casting to avoid TypeScript errors
+            trailCore.filters = [
+                new GlowFilter({
+                    distance: 20 * this.afterburnerIntensity,
+                    outerStrength: 3 * this.afterburnerIntensity,
+                    innerStrength: 2 * this.afterburnerIntensity,
+                    color: 0x00FFFF,
+                    quality: 0.5
+                }) as unknown as PIXI.Filter,
+                new BloomFilter(2.0 * this.afterburnerIntensity, 3, 5, 0.6) as unknown as PIXI.Filter,
+                new MotionBlurFilter([25 * this.afterburnerIntensity, 0], 5) as unknown as PIXI.Filter
+            ];
+
+            // Lighter effects for mid layer
+            trailMid.filters = [
+                new GlowFilter({
+                    distance: 15 * this.afterburnerIntensity,
+                    outerStrength: 2.0 * this.afterburnerIntensity,
+                    innerStrength: 1.0 * this.afterburnerIntensity,
+                    color: 0x0088FF,
+                    quality: 0.4
+                }) as unknown as PIXI.Filter
+            ];
+
+            // Outline effect for outer layer
+            trailOuter.filters = [
+                new OutlineFilter(3, 0x4444FF, 0.5 * this.afterburnerIntensity) as unknown as PIXI.Filter
+            ];
+        } else {
+            // Clear filters for normal operation
+            trailCore.filters = [];
+            trailMid.filters = [];
+            trailOuter.filters = [];
+        }
+
+        // Add all layers to effects container
+        this.effectsContainer.addChild(trailOuter);
+        this.effectsContainer.addChild(trailMid);
+        this.effectsContainer.addChild(trailCore);
+
+        // Store references for animation
+        trailOuter.name = 'trailOuter';
+        trailMid.name = 'trailMid';
+        trailCore.name = 'trailCore';
+    } updateTrailEffects(deltaTime: number): void {
+        if (!this.effectsContainer || this.config.type !== PartType.ENGINE) return;
+
+        const trailCore = this.effectsContainer.getChildByName('trailCore') as PIXI.Graphics;
+        const trailMid = this.effectsContainer.getChildByName('trailMid') as PIXI.Graphics;
+        const trailOuter = this.effectsContainer.getChildByName('trailOuter') as PIXI.Graphics;
+        const flameParticles = this.effectsContainer.getChildByName('flameParticles') as PIXI.Container;
+
+        // Base animation speed multiplier
+        let animationSpeed = 1.0;
+        let scaleMultiplier = 1.0;
+        let alphaMultiplier = 1.0;
+
+        // Enhanced effects during afterburner
+        if (this.isAfterburnerActive) {
+            animationSpeed = 2.5 * this.afterburnerIntensity;
+            scaleMultiplier = 1.5 + (0.5 * this.afterburnerIntensity);
+            alphaMultiplier = 1.2;
+        }
+
+        const time = Date.now() * 0.001 * animationSpeed;        // Animate trail effects with enhanced parameters
+        if (trailCore) {
+            trailCore.scale.x = (1.0 + Math.sin(time * 8) * 0.1) * scaleMultiplier;
+            trailCore.scale.y = 1.0 + Math.sin(time * 6) * 0.05;
+            trailCore.alpha = (0.8 + Math.sin(time * 10) * 0.2) * alphaMultiplier;
+
+            // Add subtle position oscillation for more dynamic effect
+            if (this.isAfterburnerActive) {
+                trailCore.x = -2 + Math.sin(time * 20) * 2; // Rapid subtle x movement
+                trailCore.y = Math.sin(time * 15) * 1.5;    // Rapid subtle y movement
+            } else {
+                trailCore.x = 0;
+                trailCore.y = 0;
+            }
+        }
+
+        if (trailMid) {
+            trailMid.scale.x = (1.0 + Math.sin(time * 6) * 0.15) * scaleMultiplier;
+            trailMid.scale.y = 1.0 + Math.sin(time * 4) * 0.1;
+            trailMid.alpha = (0.6 + Math.sin(time * 8) * 0.2) * alphaMultiplier;
+
+            // Add subtle position oscillation offset from core
+            if (this.isAfterburnerActive) {
+                trailMid.x = -1 + Math.sin(time * 15 + 1) * 1.5; // Different phase than core
+                trailMid.y = Math.sin(time * 12 + 1) * 1.2;      // Different phase than core
+            } else {
+                trailMid.x = 0;
+                trailMid.y = 0;
+            }
+        }
+
+        if (trailOuter) {
+            trailOuter.scale.x = (1.0 + Math.sin(time * 4) * 0.2) * scaleMultiplier;
+            trailOuter.scale.y = 1.0 + Math.sin(time * 3) * 0.15;
+            trailOuter.alpha = (0.4 + Math.sin(time * 6) * 0.2) * alphaMultiplier;
+
+            // Add subtle position oscillation offset from others
+            if (this.isAfterburnerActive) {
+                trailOuter.x = Math.sin(time * 10 + 2) * 1.0; // Different phase than others
+                trailOuter.y = Math.sin(time * 8 + 2) * 0.8;  // Different phase than others
+            } else {
+                trailOuter.x = 0;
+                trailOuter.y = 0;
+            }
+        }
+        // Animate flame particles if they exist
+        if (flameParticles && this.isAfterburnerActive) {
+            flameParticles.children.forEach((child) => {
+                const particle = child as PIXI.Graphics;
+                const speed = (particle as any).animSpeed || 1;
+                const phase = (particle as any).animPhase || 0;
+                const baseX = (particle as any).baseX || -20;
+                const baseY = (particle as any).baseY || 0;
+                const maxDistance = (particle as any).maxDistance || baseX - 10;
+                const size = (particle as any).size || 2;
+
+                // Calculate oscillation for x and y positions
+                const xOscillation = Math.sin(time * speed + phase) * 3;
+                const yOscillation = Math.sin(time * speed * 2 + phase) * 4;
+
+                // Create trailing effect where particles move further back then reset
+                const trailPosition = baseX + (Math.sin(time * speed * 0.5 + phase) * 10);
+                particle.x = Math.min(trailPosition, maxDistance) + xOscillation;
+                particle.y = baseY + yOscillation;
+
+                // Pulse alpha for flicker effect with occasional bright flashes
+                const randomFlash = Math.random() > 0.95 ? 0.3 : 0; // Occasional bright flash
+                particle.alpha = 0.6 + Math.sin(time * speed * 3 + phase) * 0.3 + randomFlash;
+
+                // Pulse scale for flame pulsing - more intense than before
+                const scaleBase = 0.8 + Math.sin(time * speed * 4 + phase) * 0.4;
+                const randomScale = Math.random() * 0.2; // Add slight randomness to each frame
+                particle.scale.set(scaleBase + randomScale);
+
+                // Occasionally change the particle color for a dynamic effect
+                if (Math.random() > 0.98) {
+                    particle.clear();
+                    const flameColors = [0x00FFFF, 0x0088FF, 0xFFFFFF, 0x80FFFF];
+                    const color = flameColors[Math.floor(Math.random() * flameColors.length)];
+                    particle.beginFill(color, 0.6 + Math.random() * 0.4);
+                    particle.drawCircle(0, 0, size * (1 + Math.random() * 0.5));
+                    particle.endFill();
+                }
+            });
+        }
+    }
 }
 
-// Define advanced ship components based on sprite sheet
+// Simple geometric ship components - organized in groups of 5-10 basic shapes
+// Circles reserved exclusively for shields as "leaves" to the ship "tree" structure
 export const ShipComponents = {
-    // Small Ships (Top Row)
-    compactShip: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 0, y: -15 },
-            { x: 15, y: -10 },
-            { x: 20, y: 0 },
-            { x: 15, y: 10 },
-            { x: 0, y: 15 },
-            { x: -10, y: 0 }
-        ],
-        effects: { glow: true }
-    }),
+    // HULL COMPONENTS - Basic geometric shapes
+    compactShip: SimpleShipComponents.compactShip,
+    assaultShip: SimpleShipComponents.assaultShip,
+    capitalShip: SimpleShipComponents.capitalShip,
 
-    // Medium Ships (Middle Row)
-    assaultShip: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 25, y: 0 },
-            { x: 15, y: -20 },
-            { x: 0, y: -25 },
-            { x: -15, y: -20 },
-            { x: -25, y: -10 },
-            { x: -25, y: 10 },
-            { x: -15, y: 20 },
-            { x: 0, y: 25 },
-            { x: 15, y: 20 },
-            { x: 25, y: 0 }
-        ],
-        effects: { glow: true, shield: true }
-    }),
+    // WING COMPONENTS - Triangles and rectangles
+    standardWings: SimpleShipComponents.basicWings,
+    assaultWings: SimpleShipComponents.basicWings,
+    deltaWings: SimpleShipComponents.basicWings,
+    sweptWings: SimpleShipComponents.basicWings,
+    interceptorWings: SimpleShipComponents.basicWings,
 
-    // Large Ships (Bottom Row)
-    capitalShip: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 35, y: 0 },
-            { x: 25, y: -30 },
-            { x: 0, y: -35 },
-            { x: -25, y: -30 },
-            { x: -35, y: -15 },
-            { x: -35, y: 15 },
-            { x: -25, y: 30 },
-            { x: 0, y: 35 },
-            { x: 25, y: 30 },
-            { x: 35, y: 0 }
-        ],
-        effects: { glow: true, shield: true }
-    }),
+    // ENGINE COMPONENTS - Rectangle-based propulsion
+    dualEngine: SimpleShipComponents.basicEngine,
+    quadEngine: SimpleShipComponents.basicEngine,
+    interceptorEngine: SimpleShipComponents.basicEngine,
+    boosterPack: SimpleShipComponents.basicEngine,
+    ionDrive: SimpleShipComponents.basicEngine,
 
-    // Wings
-    standardWings: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WING,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 15, y: -25 },
-            { x: 25, y: -15 },
-            { x: 25, y: 15 },
-            { x: 15, y: 25 },
-            { x: -15, y: 25 },
-            { x: -25, y: 15 },
-            { x: -25, y: -15 },
-            { x: -15, y: -25 }
-        ]
-    }),
+    // WEAPON COMPONENTS - Rectangle and triangle arrays  
+    sideCannons: SimpleShipComponents.basicWeapon,
+    plasmaCannon: SimpleShipComponents.basicWeapon,
+    railgun: SimpleShipComponents.basicWeapon,
+    missilePod: SimpleShipComponents.basicWeapon,
 
-    assaultWings: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WING,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 30, y: -20 },
-            { x: 35, y: 0 },
-            { x: 30, y: 20 },
-            { x: -30, y: 20 },
-            { x: -35, y: 0 },
-            { x: -30, y: -20 }
-        ]
-    }),
+    // THRUSTER COMPONENTS - Simple geometric nozzles
+    vectorThrusters: SimpleShipComponents.basicThruster,
 
-    // Engines
-    dualEngine: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ENGINE,
-        color,
-        position: { x: -20, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 0, y: -12 },
-            { x: -20, y: -12 },
-            { x: -25, y: -6 },
-            { x: -25, y: 6 },
-            { x: -20, y: 12 },
-            { x: 0, y: 12 }
-        ],
-        effects: { trail: true, glow: true }
-    }),
+    // SHIELD COMPONENTS - Circles only (leaves of the ship tree)
+    shieldGenerator: SimpleShipComponents.basicShield,
+    reactiveArmor: SimpleShipComponents.basicShield,
 
-    quadEngine: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ENGINE,
-        color,
-        position: { x: -25, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 0, y: -20 },
-            { x: -15, y: -20 },
-            { x: -20, y: -10 },
-            { x: -20, y: 10 },
-            { x: -15, y: 20 },
-            { x: 0, y: 20 }
-        ],
-        effects: { trail: true, glow: true }
-    }),
+    // INTERCEPTOR HULLS - Simple geometric fighters
+    razorInterceptor: SimpleShipComponents.basicFighter,
+    strikeInterceptor: SimpleShipComponents.compactShip,
+    phantomInterceptor: SimpleShipComponents.basicFighter,
 
-    // Weapons
-    sideCannons: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WEAPON,
-        color,
-        position: { x: 10, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 20, y: -25 },
-            { x: 25, y: -20 },
-            { x: 25, y: 20 },
-            { x: 20, y: 25 },
-            { x: -20, y: 25 },
-            { x: -25, y: 20 },
-            { x: -25, y: -20 },
-            { x: -20, y: -25 }
-        ]
-    }),
+    // SPECIALIZED HULLS - Geometric variants
+    stealthFighter: SimpleShipComponents.assaultShip,
+    heavyBomber: SimpleShipComponents.capitalShip,
 
-    // Thrusters
-    vectorThrusters: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.THRUSTER,
-        color,
-        position: { x: -30, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 0, y: -8 },
-            { x: -10, y: -8 },
-            { x: -15, y: 0 },
-            { x: -10, y: 8 },
-            { x: 0, y: 8 }
-        ],
-        effects: { trail: true, glow: true }
-    }),
-
-    // Interceptor Ships (Top Row)
-    razorInterceptor: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 25, y: 0 },
-            { x: 15, y: -12 },
-            { x: 0, y: -15 },
-            { x: -15, y: -10 },
-            { x: -20, y: 0 },
-            { x: -15, y: 10 },
-            { x: 0, y: 15 },
-            { x: 15, y: 12 }
-        ],
-        effects: { glow: true }
-    }),
-
-    strikeInterceptor: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 20, y: 0 },
-            { x: 12, y: -15 },
-            { x: -5, y: -18 },
-            { x: -18, y: -8 },
-            { x: -18, y: 8 },
-            { x: -5, y: 18 },
-            { x: 12, y: 15 }
-        ],
-        effects: { glow: true }
-    }),
-
-    phantomInterceptor: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 22, y: 0 },
-            { x: 15, y: -8 },
-            { x: 5, y: -12 },
-            { x: -10, y: -15 },
-            { x: -20, y: -5 },
-            { x: -20, y: 5 },
-            { x: -10, y: 15 },
-            { x: 5, y: 12 },
-            { x: 15, y: 8 }
-        ],
-        effects: { glow: true }
-    }),
-
-    // Specialized Interceptor Components
-    interceptorWings: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WING,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 20, y: -15 },
-            { x: 25, y: -5 },
-            { x: 25, y: 5 },
-            { x: 20, y: 15 },
-            { x: -20, y: 15 },
-            { x: -25, y: 5 },
-            { x: -25, y: -5 },
-            { x: -20, y: -15 }
-        ]
-    }),
-
-    interceptorEngine: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ENGINE,
-        color,
-        position: { x: -18, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 0, y: -10 },
-            { x: -15, y: -10 },
-            { x: -20, y: -5 },
-            { x: -20, y: 5 },
-            { x: -15, y: 10 },
-            { x: 0, y: 10 }
-        ],
-        effects: { trail: true, glow: true }
-    }),
-
-    // Heavy Weapons Systems
-    plasmaCannon: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WEAPON,
-        color,
-        position: { x: 15, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 25, y: 0 },
-            { x: 20, y: -5 },
-            { x: 10, y: -8 },
-            { x: 0, y: -5 },
-            { x: 0, y: 5 },
-            { x: 10, y: 8 },
-            { x: 20, y: 5 }
-        ],
-        effects: { glow: true }
-    }),
-
-    railgun: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WEAPON,
-        color,
-        position: { x: 20, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 30, y: 0 },
-            { x: 25, y: -3 },
-            { x: 0, y: -6 },
-            { x: -5, y: -3 },
-            { x: -5, y: 3 },
-            { x: 0, y: 6 },
-            { x: 25, y: 3 }
-        ],
-        effects: { glow: true }
-    }),
-
-    missilePod: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WEAPON,
-        color,
-        position: { x: 10, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 15, y: -10 },
-            { x: 20, y: -8 },
-            { x: 18, y: -2 },
-            { x: 20, y: 2 },
-            { x: 18, y: 8 },
-            { x: 15, y: 10 },
-            { x: 0, y: 12 },
-            { x: -5, y: 8 },
-            { x: -5, y: -8 },
-            { x: 0, y: -12 }
-        ],
-        effects: { glow: true }
-    }),
-
-    // Defensive Systems
-    shieldGenerator: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ARMOR,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 8, y: -12 },
-            { x: 12, y: -8 },
-            { x: 12, y: 8 },
-            { x: 8, y: 12 },
-            { x: -8, y: 12 },
-            { x: -12, y: 8 },
-            { x: -12, y: -8 },
-            { x: -8, y: -12 }
-        ],
-        effects: { shield: true, glow: true }
-    }),
-
-    reactiveArmor: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ARMOR,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 15, y: -8 },
-            { x: 18, y: -5 },
-            { x: 15, y: 0 },
-            { x: 18, y: 5 },
-            { x: 15, y: 8 },
-            { x: -15, y: 8 },
-            { x: -18, y: 5 },
-            { x: -15, y: 0 },
-            { x: -18, y: -5 },
-            { x: -15, y: -8 }
-        ]
-    }),
-
-    // Advanced Propulsion
-    boosterPack: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ENGINE,
-        color,
-        position: { x: -20, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 5, y: -15 },
-            { x: 0, y: -18 },
-            { x: -10, y: -15 },
-            { x: -15, y: -10 },
-            { x: -18, y: 0 },
-            { x: -15, y: 10 },
-            { x: -10, y: 15 },
-            { x: 0, y: 18 },
-            { x: 5, y: 15 },
-            { x: 8, y: 10 },
-            { x: 8, y: -10 }
-        ],
-        effects: { trail: true, glow: true }
-    }),
-
-    ionDrive: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ENGINE,
-        color,
-        position: { x: -25, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 0, y: -8 },
-            { x: -12, y: -12 },
-            { x: -20, y: -8 },
-            { x: -25, y: 0 },
-            { x: -20, y: 8 },
-            { x: -12, y: 12 },
-            { x: 0, y: 8 }
-        ],
-        effects: { trail: true, glow: true }
-    }),
-
-    // Specialized Hull Designs
-    stealthFighter: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 25, y: 0 },
-            { x: 20, y: -5 },
-            { x: 15, y: -12 },
-            { x: 5, y: -15 },
-            { x: -10, y: -12 },
-            { x: -20, y: -5 },
-            { x: -25, y: 0 },
-            { x: -20, y: 5 },
-            { x: -10, y: 12 },
-            { x: 5, y: 15 },
-            { x: 15, y: 12 },
-            { x: 20, y: 5 }
-        ],
-        effects: { glow: true }
-    }),
-
-    heavyBomber: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.COCKPIT,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 20, y: 0 },
-            { x: 15, y: -20 },
-            { x: 0, y: -25 },
-            { x: -15, y: -25 },
-            { x: -25, y: -15 },
-            { x: -30, y: 0 },
-            { x: -25, y: 15 },
-            { x: -15, y: 25 },
-            { x: 0, y: 25 },
-            { x: 15, y: 20 }
-        ],
-        effects: { glow: true }
-    }),
-
-    // Wing Configurations
-    deltaWings: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WING,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 15, y: -25 },
-            { x: 25, y: -15 },
-            { x: 20, y: 0 },
-            { x: 25, y: 15 },
-            { x: 15, y: 25 },
-            { x: -15, y: 15 },
-            { x: -20, y: 0 },
-            { x: -15, y: -15 }
-        ]
-    }),
-
-    sweptWings: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.WING,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 30, y: -20 },
-            { x: 35, y: -10 },
-            { x: 25, y: -5 },
-            { x: 15, y: 0 },
-            { x: 25, y: 5 },
-            { x: 35, y: 10 },
-            { x: 30, y: 20 },
-            { x: -30, y: 20 },
-            { x: -35, y: 10 },
-            { x: -25, y: 5 },
-            { x: -15, y: 0 },
-            { x: -25, y: -5 },
-            { x: -35, y: -10 },
-            { x: -30, y: -20 }
-        ]
-    }),
-
-    // Energy Systems
-    powerCore: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ENGINE,
-        color,
-        position: { x: 0, y: 0 },
-        rotation: 0,
-        vertices: [
-            { x: 10, y: -10 },
-            { x: 10, y: 10 },
-            { x: -10, y: 10 },
-            { x: -10, y: -10 }
-        ],
-        effects: { glow: true }
-    }),
-
-    // Support Systems
-    sensorArray: (color: ShipColor): ShipPartConfig => ({
-        type: PartType.ARMOR,
-        color,
-        position: { x: 0, y: -15 },
-        rotation: 0,
-        vertices: [
-            { x: 8, y: -5 },
-            { x: 12, y: 0 },
-            { x: 8, y: 5 },
-            { x: 0, y: 8 },
-            { x: -8, y: 5 },
-            { x: -12, y: 0 },
-            { x: -8, y: -5 },
-            { x: 0, y: -8 }
-        ],
-        effects: { glow: true }
-    })
+    // SUPPORT SYSTEMS - Basic shapes
+    powerCore: SimpleShipComponents.basicShield, // Circle for energy core
+    sensorArray: SimpleShipComponents.basicShield // Circle for sensor array
 };

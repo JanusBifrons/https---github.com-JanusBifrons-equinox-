@@ -3,6 +3,7 @@ import * as Matter from 'matter-js';
 import { ShipPart, ShipComponents, ShipColor, PartType } from './ShipParts';
 import { Projectile, ProjectileConfig } from './Projectile';
 import { ShieldBubble, ShieldConfig } from './ShieldBubble';
+import { Stats } from './Stats';
 
 export interface PlayerConfig {
     thrust: number;
@@ -17,12 +18,6 @@ export interface PlayerConfig {
     enabledParts?: {
         [key: string]: boolean;
     };
-}
-
-export interface ShipStats {
-    shield: { current: number; max: number };
-    armor: { current: number; max: number };
-    hull: { current: number; max: number };
 }
 
 interface ShipPartInstance {
@@ -43,7 +38,8 @@ export class Player {
         down: false,
         left: false,
         right: false,
-        fire: false
+        fire: false,
+        afterburner: false
     };
     private lastFireTime = 0;
     private fireRate = 200; // Milliseconds between shots
@@ -51,19 +47,22 @@ export class Player {
     private onProjectileCreated?: (projectile: Projectile) => void; private config: PlayerConfig;
     private container: PIXI.Container;
     private _isDestroyed = false;
-    private _stats: ShipStats; private lastSpeed: number = 0;
+    private _stats: Stats; private lastSpeed: number = 0;
     private accelerationValue: number = 0;
     private shield?: ShieldBubble;
+    private lastRegenTime: number = 0; private afterburnerPowerCost: number = 15; // Power per second for afterburner - REDUCED for longer use
+    private afterburnerThrust: number = 2.5; // Multiplier for thrust when afterburner is active - INCREASED for better responsiveness
 
     constructor(x: number, y: number, config: PlayerConfig) {
         this.config = config;
         this.thrust = config.thrust;
         this.rotationSpeed = config.rotationSpeed;
         this.maxSpeed = config.maxSpeed;
-        this.reverseMultiplier = config.reverseMultiplier;
+        this.reverseMultiplier = config.reverseMultiplier;        // Initialize ship stats based on ship type
+        this._stats = Stats.createForShipType(config.shipType || 'compact');
 
-        // Initialize ship stats based on ship type
-        this._stats = this.getInitialStats(config.shipType);
+        // Initialize regeneration timer
+        this.lastRegenTime = Date.now();
 
         // Create container for ship parts
         this.container = new PIXI.Container();
@@ -85,43 +84,42 @@ export class Player {
         this.setupControls();
     } public get isDestroyed(): boolean {
         return this._isDestroyed;
-    }
-
-    public get stats(): ShipStats {
-        return this._stats;
-    }
-
-    private getInitialStats(shipType?: string): ShipStats {
-        // Base stats vary by ship type
-        switch (shipType) {
-            case 'razorInterceptor':
-            case 'strikeInterceptor':
-            case 'phantomInterceptor':
-                return {
-                    shield: { current: 50, max: 50 },
-                    armor: { current: 25, max: 25 },
-                    hull: { current: 25, max: 25 }
-                };
-            case 'assault':
-                return {
-                    shield: { current: 75, max: 75 },
-                    armor: { current: 50, max: 50 },
-                    hull: { current: 50, max: 50 }
-                };
-            case 'capital':
-                return {
-                    shield: { current: 150, max: 150 },
-                    armor: { current: 100, max: 100 },
-                    hull: { current: 100, max: 100 }
-                };
-            case 'compact':
-            default:
-                return {
-                    shield: { current: 100, max: 100 },
-                    armor: { current: 50, max: 50 },
-                    hull: { current: 75, max: 75 }
-                };
-        }
+    } public get stats(): {
+        shield: { current: number; max: number; regen: number; regenCap: number };
+        armor: { current: number; max: number; regen: number; regenCap: number };
+        hull: { current: number; max: number; regen: number; regenCap: number };
+        power: { current: number; max: number; regen: number; regenCap: number };
+        torque: number;
+        acceleration: number;
+    } {
+        return {
+            shield: {
+                current: this._stats.shields,
+                max: this._stats.shieldCap,
+                regen: this._stats.shieldRegen,
+                regenCap: this._stats.shieldCap
+            },
+            armor: {
+                current: this._stats.armor,
+                max: this._stats.armorCap,
+                regen: this._stats.armorRegen,
+                regenCap: this._stats.armorCap
+            },
+            hull: {
+                current: this._stats.hull,
+                max: this._stats.hullCap,
+                regen: this._stats.hullRegen,
+                regenCap: this._stats.hullCap
+            },
+            power: {
+                current: this._stats.power,
+                max: this._stats.powerCap,
+                regen: this._stats.powerRegen,
+                regenCap: this._stats.powerCap
+            },
+            torque: this._stats.torque,
+            acceleration: this._stats.acceleration
+        };
     } public destroy(): { body: Matter.Body, graphic: PIXI.Container }[] {
         if (this._isDestroyed) return [];
         this._isDestroyed = true;
@@ -277,9 +275,7 @@ export class Player {
                 isDestroyed: false
             });
         });
-    }
-
-    private setupControls() {
+    } private setupControls() {
         window.addEventListener('keydown', (e) => {
             switch (e.code) {
                 case 'KeyW':
@@ -301,10 +297,12 @@ export class Player {
                 case 'Space':
                     this.input.fire = true;
                     break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    this.input.afterburner = true;
+                    break;
             }
-        });
-
-        window.addEventListener('keyup', (e) => {
+        }); window.addEventListener('keyup', (e) => {
             switch (e.code) {
                 case 'KeyW':
                 case 'ArrowUp':
@@ -324,6 +322,10 @@ export class Player {
                     break;
                 case 'Space':
                     this.input.fire = false;
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    this.input.afterburner = false;
                     break;
             }
         });
@@ -410,6 +412,14 @@ export class Player {
 
     public getAcceleration(): number {
         return this.accelerationValue;
+    } public isAfterburnerActive(): boolean {
+        return this.input.afterburner && this._stats.power > 0;
+    } public takeDamage(amount: number): void {
+        // Use the Stats class damage system
+        const isDestroyed = this._stats.applyDamage(amount);
+        if (isDestroyed) {
+            this._isDestroyed = true;
+        }
     }
 
     public update() {
@@ -434,42 +444,94 @@ export class Player {
             Matter.Body.setAngularVelocity(this.body, this.rotationSpeed);
         } else {
             Matter.Body.setAngularVelocity(this.body, 0);
-        }
-
-        // Thrust
+        }        // Thrust
         if (this.input.up || this.input.down) {
             const angle = this.body.angle;
-            const direction = this.input.up ? 1 : -this.reverseMultiplier;
+            const direction = this.input.up ? 1 : -this.reverseMultiplier;            // Calculate thrust multiplier based on afterburner
+            let thrustMultiplier = 1;
+            let thrustPowerCost = 5; // Base power cost per second for thrust
 
-            // Apply thrust force
+            if (this.input.afterburner && this._stats.power > 0) {
+                thrustMultiplier = this.afterburnerThrust;
+                thrustPowerCost = this.afterburnerPowerCost;
+
+                // Consume power for afterburner (scaled by frame rate)
+                const powerConsumption = thrustPowerCost / 60; // Per frame at 60fps
+                this._stats.consumePower(powerConsumption);
+            } else {
+                // Regular thrust power consumption
+                const powerConsumption = thrustPowerCost / 60;
+                this._stats.consumePower(powerConsumption);
+            }
+
+            // Apply thrust force with multiplier
             Matter.Body.applyForce(this.body, this.body.position, {
-                x: Math.cos(angle) * this.thrust * direction,
-                y: Math.sin(angle) * this.thrust * direction
-            });
+                x: Math.cos(angle) * this.thrust * direction * thrustMultiplier,
+                y: Math.sin(angle) * this.thrust * direction * thrustMultiplier
+            });// Update engine parts with afterburner state
+            const isAfterburnerActive = this.input.afterburner && this._stats.power > 0;
+            this.updateEnginePartsAfterburner(isAfterburnerActive, thrustMultiplier / this.afterburnerThrust);
 
-            // Limit maximum speed
+            // Apply a visual pulsing effect to engine parts during afterburner
+            if (isAfterburnerActive) {
+                this.updateEnginePartAnimations();
+            }            // Limit maximum speed (afterburner can exceed normal max speed slightly)
             const velocity = this.body.velocity;
-            const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-            if (speed > this.maxSpeed) {
-                const ratio = this.maxSpeed / speed;
+            const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y); const maxSpeedLimit = this.input.afterburner && this._stats.power > 0
+                ? this.maxSpeed * 1.3  // INCREASED from 1.15 to 1.3 for better afterburner speed boost
+                : this.maxSpeed;
+
+            if (speed > maxSpeedLimit) {
+                const ratio = maxSpeedLimit / speed;
                 Matter.Body.setVelocity(this.body, {
                     x: velocity.x * ratio,
                     y: velocity.y * ratio
                 });
             }
-        }        // Shooting
-        if (this.input.fire) {
-            this.shoot();
+        } else {
+            // Reset engine effects when not thrusting
+            this.updateEnginePartsAfterburner(false, 0);
         }
 
-        // Update graphics to match physics body
+        // Update engine part animations regardless of thrust state
+        this.updateEnginePartAnimations();        // Stats regeneration system using the new Stats class
+        const currentTime = Date.now();
+        const deltaTime = currentTime - this.lastRegenTime;
+
+        if (deltaTime >= 100) { // Update every 100ms for smooth regeneration
+            // Use the Stats class update method for all regeneration
+            this._stats.update(deltaTime);
+            this.lastRegenTime = currentTime;
+        }
+
+        // Shooting (with power consumption)
+        if (this.input.fire) {
+            // Shooting consumes power using the Stats class method
+            const shotPowerCost = 8;
+            if (this._stats.consumePower(shotPowerCost)) {
+                this.shoot();
+            }
+        }// Update graphics to match physics body
         this.graphic.position.set(this.body.position.x, this.body.position.y);
         this.graphic.rotation = this.body.angle;
 
-        // Compute speed and acceleration
+        // Always update engine animations for smooth transitions between states
+        this.updateEnginePartAnimations();        // Compute speed and acceleration
         const currentSpeed = this.getSpeed();
         this.accelerationValue = (currentSpeed - this.lastSpeed) * 60; // approximate per second
+
+        // Cap acceleration at reasonable levels for better game balance
+        const maxAcceleration = 800; // Maximum acceleration value
+        this.accelerationValue = Math.max(-maxAcceleration, Math.min(maxAcceleration, this.accelerationValue));
+
         this.lastSpeed = currentSpeed;
+    } private updateEnginePartsAfterburner(isActive: boolean, intensity: number): void {
+        // Find all engine parts and update their afterburner state
+        this.shipParts.forEach(partInstance => {
+            if (partInstance.part.getPartType() === PartType.ENGINE) {
+                partInstance.part.setAfterburnerState(isActive, intensity);
+            }
+        });
     }
 
     private initializeShield(config: PlayerConfig): void {
@@ -523,5 +585,16 @@ export class Player {
             case 'razorInterceptor': return 0xffff44; // Yellow
             default: return 0x00ffff; // Cyan
         }
+    }
+
+    private updateEnginePartAnimations(): void {
+        // Update animation for all engine parts
+        this.shipParts.forEach(partInstance => {
+            if (partInstance.part.getPartType() === PartType.ENGINE) {
+                // Pass deltaTime (1/60 second is a reasonable approximation for each frame)
+                const deltaTime = 1 / 60;
+                partInstance.part.updateTrailEffects(deltaTime);
+            }
+        });
     }
 }

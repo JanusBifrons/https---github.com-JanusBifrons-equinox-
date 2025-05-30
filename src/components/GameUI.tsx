@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Menu,
     MenuItem,
@@ -92,7 +92,17 @@ const HexagonStats: React.FC<HexagonStatsProps> = ({ label, current, max, color 
 
 const GameUI: React.FC<GameUIProps> = ({ player, onReturnToMenu, onShowOptions }) => {
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+    const [, forceUpdate] = useState(0);
     const open = Boolean(anchorEl);
+
+    // Force re-render every frame to show real-time updates
+    useEffect(() => {
+        const interval = setInterval(() => {
+            forceUpdate(prev => prev + 1);
+        }, 16); // ~60fps
+
+        return () => clearInterval(interval);
+    }, []);
 
     const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
         setAnchorEl(event.currentTarget);
@@ -197,6 +207,53 @@ const GameUI: React.FC<GameUIProps> = ({ player, onReturnToMenu, onShowOptions }
                         max={player.stats.hull.max}
                         color="#ff4444"
                     />
+                    <HexagonStats
+                        label="POWER"
+                        current={Math.round(player.stats.power.current)}
+                        max={player.stats.power.max}
+                        color="#00ff88"
+                    />
+                    {/* Afterburner status indicator */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mx: 2 }}>
+                        <Box
+                            sx={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: '50%',
+                                border: '2px solid',
+                                borderColor: player.isAfterburnerActive() ? '#ff8800' : 'rgba(255, 136, 0, 0.3)',
+                                backgroundColor: player.isAfterburnerActive() ? 'rgba(255, 136, 0, 0.3)' : 'rgba(0, 0, 0, 0.7)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: player.isAfterburnerActive() ? '0 0 10px rgba(255, 136, 0, 0.5)' : 'none',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            <Typography
+                                variant="caption"
+                                sx={{
+                                    color: player.isAfterburnerActive() ? '#ff8800' : 'rgba(255, 136, 0, 0.5)',
+                                    fontFamily: 'Press Start 2P',
+                                    fontSize: '6px',
+                                    fontWeight: 'bold'
+                                }}
+                            >
+                                AB
+                            </Typography>
+                        </Box>
+                        <Typography
+                            variant="caption"
+                            sx={{
+                                color: 'white',
+                                mt: 1,
+                                fontFamily: 'Press Start 2P',
+                                fontSize: '8px'
+                            }}
+                        >
+                            BURN
+                        </Typography>
+                    </Box>
                     {/* Added speed display */}
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mx: 2 }}>
                         <Typography

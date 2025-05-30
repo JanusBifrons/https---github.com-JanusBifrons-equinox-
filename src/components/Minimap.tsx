@@ -1,433 +1,290 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-    Box,
-    IconButton,
-    Paper,
-    Typography,
-    Tooltip
-} from '@mui/material';
-import ZoomInIcon from '@mui/icons-material/ZoomIn';
-import ZoomOutIcon from '@mui/icons-material/ZoomOut';
+import React, { useEffect, useRef } from 'react';
+import { Box } from '@mui/material';
 import * as PIXI from 'pixi.js';
-import { Engine } from '../game/Engine';
+import type { GameMode } from '../game/Engine';
 
 interface MinimapProps {
-    engine: Engine | null;
-    gameMode: string;
+    engine: any;
+    gameMode: GameMode;
 }
 
 const Minimap: React.FC<MinimapProps> = ({ engine, gameMode }) => {
-    const minimapRef = useRef<HTMLDivElement>(null);
-    const pixiAppRef = useRef<PIXI.Application | null>(null);
-    const [minimapZoom, setMinimapZoom] = useState(1.0);
-    const [minimapData, setMinimapData] = useState<{
-        player: { x: number; y: number; angle: number } | null;
-        objects: Array<{ x: number; y: number; color: number; isDestroyed?: boolean }>;
-        bounds: { width: number; height: number };
-    }>({
-        player: null,
-        objects: [],
-        bounds: { width: 0, height: 0 }
-    });
+    const containerRef = useRef<HTMLDivElement>(null);
+    const appRef = useRef<PIXI.Application | null>(null);
+    const animationFrameRef = useRef<number | null>(null);
 
-    const minimapSize = gameMode === 'test' ? 180 : 150;
-    const minZoom = 0.5;
-    const maxZoom = 3.0; useEffect(() => {
-        if (!minimapRef.current || pixiAppRef.current) return;
+    console.log('Minimap component rendered with engine:', !!engine, 'gameMode:', gameMode);
 
-        // Create PIXI application for minimap
-        const initPixiApp = async () => {
-            const app = new PIXI.Application();
+    // Initialize PIXI Application
+    useEffect(() => {
+        if (!containerRef.current) return;
 
-            await app.init({
-                width: minimapSize,
-                height: minimapSize,
-                backgroundColor: 0x000000,
-                backgroundAlpha: 0.8,
-            });
+        const initPixi = async () => {
+            try {
+                console.log('Initializing minimap PIXI app'); const app = new PIXI.Application();
+                await app.init({
+                    width: 150,
+                    height: 150,
+                    backgroundColor: 0x001122,
+                    backgroundAlpha: 0.8,
+                    antialias: true,
+                    hello: false // Disable PIXI message in console
+                });
+                appRef.current = app;
+                if (containerRef.current) {
+                    containerRef.current.innerHTML = '';
+                    containerRef.current.appendChild(app.canvas);
+                    console.log('Minimap canvas added to DOM');
+                } else {
+                    console.error('containerRef.current is null');
+                }
 
-            pixiAppRef.current = app;
-            if (minimapRef.current) {
-                minimapRef.current.appendChild(app.canvas);
+                console.log('Minimap PIXI app initialized successfully');
+
+            } catch (error) {
+                console.error('Minimap PIXI initialization failed:', error);
+                // Fallback: show a simple colored div
+                if (containerRef.current) {
+                    containerRef.current.innerHTML = '<div style="width: 100%; height: 100%; background: #001122; border: 1px solid #00ffff;"></div>';
+                }
             }
         };
 
-        initPixiApp().catch(console.error);
+        initPixi();
 
         return () => {
-            if (pixiAppRef.current) {
-                pixiAppRef.current.destroy();
-                pixiAppRef.current = null;
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
+            }
+            if (appRef.current) {
+                appRef.current.destroy(true);
+                appRef.current = null;
             }
         };
-    }, [minimapSize]); useEffect(() => {
-        if (!engine || !pixiAppRef.current) return; const updateMinimap = () => {
-            const app = pixiAppRef.current;
-            if (!app || !app.canvas) return;
+    }, []);
 
-            try {
-                // Clear previous frame
+    // Update minimap content
+    useEffect(() => {
+        console.log('Minimap update effect triggered, engine:', !!engine, 'appRef.current:', !!appRef.current);
+        if (!engine || !appRef.current) {
+            console.warn('Minimap update skipped: missing engine or app');
+            return;
+        }
+
+        // Check if engine has getMinimapData method
+        if (typeof engine.getMinimapData !== 'function') {
+            console.warn('Engine does not have getMinimapData method'); return;
+        }
+
+        const updateMinimap = () => {
+            const app = appRef.current;
+            if (!app || !engine) {
+                console.warn('Minimap update skipped: app or engine not available');
+                return;
+            }
+
+            try {                // Clear previous frame
                 app.stage.removeChildren();
 
-                // Create border with glow effect
-                const border = new PIXI.Graphics();
-                border.lineStyle(2, 0x00ffff, 0.9);
-                border.drawRect(1, 1, minimapSize - 2, minimapSize - 2);
+                // Get minimap data from engine
+                const minimapData = engine.getMinimapData?.();
+                console.log('Minimap data:', minimapData);
 
-                // Add inner glow
-                const innerGlow = new PIXI.Graphics();
-                innerGlow.lineStyle(1, 0x00ffff, 0.3);
-                innerGlow.drawRect(3, 3, minimapSize - 6, minimapSize - 6);
-
-                app.stage.addChild(innerGlow);
-                app.stage.addChild(border);
-
-                // Get world data from engine
-                if (!engine) return;
-                const minimapData = engine.getMinimapData();
-                if (!minimapData) return;
-
-                // Calculate scaling
-                const worldSize = Math.max(minimapData.bounds.width, minimapData.bounds.height);
-                const scale = (minimapSize - 20) / (worldSize / minimapZoom);
+                const minimapSize = 150;
                 const centerX = minimapSize / 2;
                 const centerY = minimapSize / 2;
 
-                // Draw grid
-                const grid = new PIXI.Graphics();
-                grid.lineStyle(1, 0x333333, 0.3);
-                const gridSpacing = 50 * scale;
-                if (gridSpacing > 5) { // Only draw grid if spacing is reasonable
-                    for (let x = gridSpacing; x < minimapSize; x += gridSpacing) {
-                        grid.moveTo(x, 0);
-                        grid.lineTo(x, minimapSize);
-                    }
-                    for (let y = gridSpacing; y < minimapSize; y += gridSpacing) {
-                        grid.moveTo(0, y);
-                        grid.lineTo(minimapSize, y);
-                    }
-                    app.stage.addChild(grid);
+                // Always draw a basic background first
+                const background = new PIXI.Graphics();
+                background.rect(0, 0, minimapSize, minimapSize);
+                background.fill({ color: 0x001122, alpha: 0.8 });
+                app.stage.addChild(background);
+
+                // Always draw border
+                const border = new PIXI.Graphics();
+                border.stroke({ width: 2, color: 0x00FFFF, alpha: 0.8 });
+                border.rect(1, 1, minimapSize - 2, minimapSize - 2);
+                app.stage.addChild(border);
+
+                // Always draw center crosshair
+                const crosshair = new PIXI.Graphics();
+                crosshair.stroke({ width: 1, color: 0x00FFFF, alpha: 0.4 });
+                crosshair.moveTo(centerX - 8, centerY).lineTo(centerX + 8, centerY);
+                crosshair.moveTo(centerX, centerY - 8).lineTo(centerX, centerY + 8);
+                app.stage.addChild(crosshair); if (!minimapData) {
+                    console.warn('No minimap data available, showing test pattern');
+                    // Draw a simple test pattern if no data
+                    const testGraphics = new PIXI.Graphics();
+                    testGraphics.circle(75, 75, 5);
+                    testGraphics.fill(0xFFFFFF);
+                    app.stage.addChild(testGraphics);
+
+                    animationFrameRef.current = requestAnimationFrame(updateMinimap);
+                    return;
                 }
 
-                // Calculate camera offset for centering
+                const scale = 0.15; // Adjusted scale for better visibility
+
+                // Calculate player offset for centering
                 let offsetX = 0;
                 let offsetY = 0;
-                if (minimapData.player) {
-                    offsetX = centerX - minimapData.player.x * scale;
-                    offsetY = centerY - minimapData.player.y * scale;
-                }            // Draw other objects
-                minimapData.objects.forEach((obj: { x: number; y: number; color: number; isDestroyed?: boolean }) => {
-                    const objDot = new PIXI.Graphics();
-                    const color = obj.isDestroyed ? 0xff0000 : (obj.color || 0x888888);
-                    const alpha = obj.isDestroyed ? 0.8 : 0.6;
-                    const size = obj.isDestroyed ? 1.5 : 2.5;
-
-                    objDot.beginFill(color, alpha);
-                    objDot.drawCircle(0, 0, size);
-                    objDot.endFill();
-
-                    // Add subtle glow for better visibility
-                    if (!obj.isDestroyed) {
-                        objDot.lineStyle(1, color, 0.3);
-                        objDot.drawCircle(0, 0, size + 1);
-                    }
-
-                    objDot.position.set(
-                        obj.x * scale + offsetX,
-                        obj.y * scale + offsetY
-                    );
-                    app.stage.addChild(objDot);
-                });
-
-                // Draw enemies
-                if (minimapData.enemies) {
-                    minimapData.enemies.forEach((enemy: { x: number; y: number; isDestroyed: boolean; size: number }) => {
-                        if (enemy.isDestroyed) return;
-
-                        const enemyDot = new PIXI.Graphics();
-                        enemyDot.beginFill(0xff4444, 0.8);
-                        enemyDot.drawCircle(0, 0, 2);
-                        enemyDot.endFill();
-
-                        // Add red glow for enemies
-                        enemyDot.lineStyle(1, 0xff0000, 0.4);
-                        enemyDot.drawCircle(0, 0, 3);
-
-                        enemyDot.position.set(
-                            enemy.x * scale + offsetX,
-                            enemy.y * scale + offsetY
-                        );
-                        app.stage.addChild(enemyDot);
-                    });
-                }
-
-                // Draw turrets
-                if (minimapData.turrets) {
-                    minimapData.turrets.forEach((turret: { x: number; y: number; isDestroyed: boolean; size: number; range: number }) => {
-                        if (turret.isDestroyed) return;
-
-                        // Draw turret range (faint circle)
-                        const rangeDot = new PIXI.Graphics();
-                        rangeDot.beginFill(0x888888, 0.1);
-                        rangeDot.drawCircle(0, 0, turret.range * scale);
-                        rangeDot.endFill();
-                        rangeDot.position.set(
-                            turret.x * scale + offsetX,
-                            turret.y * scale + offsetY
-                        );
-                        app.stage.addChild(rangeDot);
-
-                        // Draw turret (gray/silver)
-                        const turretDot = new PIXI.Graphics();
-                        turretDot.beginFill(0xaaaaaa, 0.8);
-                        turretDot.drawCircle(0, 0, Math.max(2, turret.size * scale * 0.3));
-                        turretDot.endFill();
-
-                        // Outer ring for visibility
-                        turretDot.lineStyle(1, 0xdddddd, 0.6);
-                        turretDot.drawCircle(0, 0, Math.max(3, turret.size * scale * 0.4));
-
-                        turretDot.position.set(
-                            turret.x * scale + offsetX,
-                            turret.y * scale + offsetY
-                        );
-                        app.stage.addChild(turretDot);
-                    });
-                }
-
-                // Draw projectiles
-                if (minimapData.projectiles) {
-                    minimapData.projectiles.forEach((projectile: { x: number; y: number; isDestroyed: boolean; size: number }) => {
-                        if (projectile.isDestroyed) return;
-
-                        const projDot = new PIXI.Graphics();
-                        projDot.beginFill(0x00ffff, 0.6);
-                        projDot.drawCircle(0, 0, 1);
-                        projDot.endFill();
-
-                        projDot.position.set(
-                            projectile.x * scale + offsetX,
-                            projectile.y * scale + offsetY
-                        );
-                        app.stage.addChild(projDot);
-                    });
-                }// Draw player (on top)
                 if (minimapData.player && !minimapData.player.isDestroyed) {
-                    // Player glow effect
-                    const playerGlow = new PIXI.Graphics();
-                    playerGlow.beginFill(0x00ffff, 0.3);
-                    playerGlow.drawCircle(0, 0, 8);
-                    playerGlow.endFill();
-                    playerGlow.position.set(centerX, centerY);
-                    app.stage.addChild(playerGlow);
-
-                    // Main player shape
-                    const playerDot = new PIXI.Graphics();
-                    playerDot.beginFill(0x00ffff);
-                    playerDot.drawPolygon([
-                        0, -5,  // tip
-                        -3, 4,  // left bottom
-                        0, 2,   // center bottom
-                        3, 4    // right bottom
-                    ]);
-                    playerDot.endFill();
-
-                    // Add outline
-                    playerDot.lineStyle(1, 0xffffff, 0.8);
-                    playerDot.drawPolygon([
-                        0, -5,  // tip
-                        -3, 4,  // left bottom
-                        0, 2,   // center bottom
-                        3, 4    // right bottom
-                    ]);
-
-                    playerDot.position.set(centerX, centerY);
-                    playerDot.rotation = minimapData.player.angle;
-                    app.stage.addChild(playerDot);
-
-                    // Draw velocity indicator
-                    const velocity = minimapData.player.velocity;
-                    const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-                    if (speed > 0.1) {
-                        const velocityLine = new PIXI.Graphics();
-                        velocityLine.lineStyle(3, 0x00ff00, 0.8);
-                        velocityLine.moveTo(centerX, centerY);
-                        const velocityLength = Math.min(speed * scale * 15, 25);
-                        const velocityAngle = Math.atan2(velocity.y, velocity.x);
-                        velocityLine.lineTo(
-                            centerX + Math.cos(velocityAngle) * velocityLength,
-                            centerY + Math.sin(velocityAngle) * velocityLength
-                        );
-                        app.stage.addChild(velocityLine);
-                    }
-                }            // Draw destroyed parts indicator if player is destroyed
-                if (minimapData.player?.isDestroyed) {
-                    const destroyedPartsIndicator = new PIXI.Graphics();
-                    destroyedPartsIndicator.beginFill(0xff0000, 0.6);
-                    destroyedPartsIndicator.drawCircle(centerX, centerY, 8);
-                    destroyedPartsIndicator.endFill();
-                    app.stage.addChild(destroyedPartsIndicator);
+                    offsetX = -minimapData.player.x * scale;
+                    offsetY = -minimapData.player.y * scale;
+                }                // Draw background grid
+                const grid = new PIXI.Graphics();
+                grid.stroke({ width: 1, color: 0x004466, alpha: 0.3 });
+                const gridSpacing = 30;
+                for (let i = 0; i <= minimapSize; i += gridSpacing) {
+                    grid.moveTo(i, 0).lineTo(i, minimapSize);
+                    grid.moveTo(0, i).lineTo(minimapSize, i);
                 }
-            } catch (error) {
-                console.warn('Minimap rendering error:', error);
-            }
-        };
+                app.stage.addChild(grid);
 
-        // Update minimap on each frame
-        const ticker = new PIXI.Ticker();
-        ticker.add(updateMinimap);
-        ticker.start();
+                // Draw objects (gray circles)
+                if (minimapData.objects) {
+                    minimapData.objects.forEach((obj: any) => {
+                        if (obj.isDestroyed) return; const objGraphics = new PIXI.Graphics();
+                        objGraphics.circle(0, 0, 2);
+                        objGraphics.fill({ color: 0x666666, alpha: 0.6 });
+
+                        objGraphics.x = centerX + (obj.x * scale) + offsetX;
+                        objGraphics.y = centerY + (obj.y * scale) + offsetY;
+
+                        if (objGraphics.x >= 0 && objGraphics.x <= minimapSize &&
+                            objGraphics.y >= 0 && objGraphics.y <= minimapSize) {
+                            app.stage.addChild(objGraphics);
+                        }
+                    });
+                }
+
+                // Draw enemies (red circles)
+                if (minimapData.enemies) {
+                    minimapData.enemies.forEach((enemy: any) => {
+                        if (enemy.isDestroyed) return; const enemyGraphics = new PIXI.Graphics();
+                        enemyGraphics.circle(0, 0, 3);
+                        enemyGraphics.fill(0xFF3333);
+
+                        enemyGraphics.x = centerX + (enemy.x * scale) + offsetX;
+                        enemyGraphics.y = centerY + (enemy.y * scale) + offsetY;
+
+                        if (enemyGraphics.x >= -10 && enemyGraphics.x <= minimapSize + 10 &&
+                            enemyGraphics.y >= -10 && enemyGraphics.y <= minimapSize + 10) {
+                            app.stage.addChild(enemyGraphics);
+                        }
+                    });
+                }
+
+                // Draw turrets (orange squares)
+                if (minimapData.turrets) {
+                    minimapData.turrets.forEach((turret: any) => {
+                        if (turret.isDestroyed) return; const turretGraphics = new PIXI.Graphics();
+                        turretGraphics.rect(-2, -2, 4, 4);
+                        turretGraphics.fill(0xFF8800);
+
+                        turretGraphics.x = centerX + (turret.x * scale) + offsetX;
+                        turretGraphics.y = centerY + (turret.y * scale) + offsetY;
+
+                        if (turretGraphics.x >= -10 && turretGraphics.x <= minimapSize + 10 &&
+                            turretGraphics.y >= -10 && turretGraphics.y <= minimapSize + 10) {
+                            app.stage.addChild(turretGraphics);
+                        }
+                    });
+                }
+
+                // Draw projectiles (yellow dots)
+                if (minimapData.projectiles) {
+                    minimapData.projectiles.forEach((projectile: any) => {
+                        if (projectile.isDestroyed) return; const projGraphics = new PIXI.Graphics();
+                        projGraphics.circle(0, 0, 1);
+                        projGraphics.fill(0xFFFF00);
+
+                        projGraphics.x = centerX + (projectile.x * scale) + offsetX;
+                        projGraphics.y = centerY + (projectile.y * scale) + offsetY;
+
+                        if (projGraphics.x >= 0 && projGraphics.x <= minimapSize &&
+                            projGraphics.y >= 0 && projGraphics.y <= minimapSize) {
+                            app.stage.addChild(projGraphics);
+                        }
+                    });
+                }
+
+                // Draw player (cyan triangle, always centered)
+                if (minimapData.player && !minimapData.player.isDestroyed) {
+                    const playerGraphics = new PIXI.Graphics();
+
+                    // Triangle pointing up (direction of movement)
+                    playerGraphics.poly([
+                        0, -6,   // tip
+                        -4, 4,   // left base
+                        4, 4     // right base
+                    ]);
+                    playerGraphics.fill(0x00FFFF);
+                    playerGraphics.stroke({ width: 1, color: 0xFFFFFF });
+
+                    playerGraphics.x = centerX;
+                    playerGraphics.y = centerY;
+                    playerGraphics.rotation = minimapData.player.angle || 0;
+
+                    app.stage.addChild(playerGraphics);
+
+                    // Draw velocity vector (green line)
+                    if (minimapData.player.velocity) {
+                        const vel = minimapData.player.velocity;
+                        const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+                        if (speed > 1) {
+                            const velocityLine = new PIXI.Graphics();
+                            velocityLine.stroke({ width: 2, color: 0x00FF00, alpha: 0.8 });
+
+                            const length = Math.min(speed * 0.2, 15);
+                            const angle = Math.atan2(vel.y, vel.x);
+
+                            velocityLine.moveTo(centerX, centerY);
+                            velocityLine.lineTo(
+                                centerX + Math.cos(angle) * length,
+                                centerY + Math.sin(angle) * length
+                            ); app.stage.addChild(velocityLine);
+                        }
+                    }
+                }
+
+            } catch (error) {
+                console.warn('Minimap update error:', error);
+            }
+
+            // Schedule next update
+            animationFrameRef.current = requestAnimationFrame(updateMinimap);
+        };        // Start the update loop
+        console.log('Starting minimap update loop');
+        updateMinimap();
 
         return () => {
-            ticker.destroy();
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
+                animationFrameRef.current = null;
+            }
         };
-    }, [engine, minimapZoom, minimapSize]);
+    }, [engine]);
 
-    const handleZoomIn = () => {
-        setMinimapZoom(prev => Math.min(maxZoom, prev + 0.2));
-    };
-
-    const handleZoomOut = () => {
-        setMinimapZoom(prev => Math.max(minZoom, prev - 0.2));
-    };
-
-    if (!engine) return null;
-
-    return (<Paper
-        sx={{
-            position: 'fixed',
-            top: gameMode === 'test' ? 'auto' : 20,
-            bottom: gameMode === 'test' ? 20 : 'auto',
-            left: gameMode === 'test' ? 20 : 'auto',
-            right: gameMode === 'test' ? 'auto' : 20,
-            width: minimapSize + 40,
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-            border: '2px solid rgba(0, 255, 255, 0.8)',
-            borderRadius: '8px',
-            overflow: 'hidden',
-            backdropFilter: 'blur(4px)',
-            boxShadow: '0 0 20px rgba(0, 255, 255, 0.3), inset 0 0 20px rgba(0, 255, 255, 0.1)',
-            zIndex: 1000,
-            transition: 'all 0.3s ease',
-            '&:hover': {
-                borderColor: 'rgba(0, 255, 255, 1)',
-                boxShadow: '0 0 30px rgba(0, 255, 255, 0.5), inset 0 0 20px rgba(0, 255, 255, 0.15)',
-            },
-        }}
-    >
-        {/* Header */}
+    return (
         <Box
+            ref={containerRef}
             sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                p: 1,
-                backgroundColor: 'rgba(0, 255, 255, 0.1)',
-                borderBottom: '1px solid rgba(0, 255, 255, 0.3)',
-            }}
-        >                <Typography
-            variant="caption"
-            sx={{
-                fontFamily: 'Press Start 2P',
-                fontSize: '8px',
-                color: '#00ffff',
-                textTransform: 'uppercase',
-                textShadow: '0 0 4px rgba(0, 255, 255, 0.5)',
-            }}
-        >
-                {gameMode === 'test' ? 'Navigation' : 'Minimap'}
-            </Typography>
-
-            <Box sx={{ display: 'flex', gap: 0.5 }}>
-                <Tooltip title="Zoom Out" arrow>
-                    <IconButton
-                        size="small"
-                        onClick={handleZoomOut}
-                        disabled={minimapZoom <= minZoom}
-                        sx={{
-                            color: '#00ffff',
-                            width: 20,
-                            height: 20,
-                            '&:hover': {
-                                backgroundColor: 'rgba(0, 255, 255, 0.1)',
-                            },
-                            '&:disabled': {
-                                color: 'rgba(0, 255, 255, 0.3)',
-                            },
-                        }}
-                    >
-                        <ZoomOutIcon sx={{ fontSize: 12 }} />
-                    </IconButton>
-                </Tooltip>
-
-                <Tooltip title="Zoom In" arrow>
-                    <IconButton
-                        size="small"
-                        onClick={handleZoomIn}
-                        disabled={minimapZoom >= maxZoom}
-                        sx={{
-                            color: '#00ffff',
-                            width: 20,
-                            height: 20,
-                            '&:hover': {
-                                backgroundColor: 'rgba(0, 255, 255, 0.1)',
-                            },
-                            '&:disabled': {
-                                color: 'rgba(0, 255, 255, 0.3)',
-                            },
-                        }}
-                    >
-                        <ZoomInIcon sx={{ fontSize: 12 }} />
-                    </IconButton>
-                </Tooltip>
-            </Box>
-        </Box>            {/* Minimap Canvas */}
-        <Box
-            ref={minimapRef}
-            sx={{
-                position: 'relative',
-                width: minimapSize,
-                height: minimapSize,
-                margin: '10px auto',
-                borderRadius: '4px',
+                position: 'fixed',
+                top: 20,
+                right: 20,
+                width: 150,
+                height: 150,
+                border: '2px solid #00ffff',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(0, 17, 34, 0.9)',
+                zIndex: 1000,
                 overflow: 'hidden',
-                border: '1px solid rgba(0, 255, 255, 0.4)',
-                boxShadow: 'inset 0 0 10px rgba(0, 255, 255, 0.2)',
+                boxShadow: '0 0 10px rgba(0, 255, 255, 0.3)'
             }}
         />
-
-        {/* Zoom indicator */}
-        <Box
-            sx={{
-                position: 'absolute',
-                bottom: 8,
-                right: 8,
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                border: '1px solid rgba(0, 255, 255, 0.3)',
-                borderRadius: '4px',
-                px: 1,
-                py: 0.5,
-                transition: 'all 0.2s ease',
-                '&:hover': {
-                    backgroundColor: 'rgba(0, 255, 255, 0.1)',
-                    borderColor: 'rgba(0, 255, 255, 0.6)',
-                },
-            }}
-        >
-            <Typography
-                variant="caption"
-                sx={{
-                    fontFamily: 'Press Start 2P',
-                    fontSize: '6px',
-                    color: '#00ffff',
-                    textShadow: '0 0 2px rgba(0, 255, 255, 0.8)',
-                }}
-            >
-                {minimapZoom.toFixed(1)}x
-            </Typography>
-        </Box>
-    </Paper>
     );
 };
 
 export default Minimap;
+

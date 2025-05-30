@@ -6,7 +6,7 @@ import ShipConfigPanel, { ShipConfig } from './components/ShipConfigPanel';
 import PartTestDisplay from './components/PartTestDisplay';
 import GameUI from './components/GameUI';
 import OptionsMenu from './components/OptionsMenu';
-import Minimap from './components/Minimap';
+// import Minimap from './components/Minimap'; // Temporarily disabled
 import type { GameMode } from './game/Engine';
 
 function App() {
@@ -111,10 +111,12 @@ function App() {
                 onReturnToMenu={handleReturnToMenu}
                 onShowOptions={() => setShowOptionsMenu(true)}
               />
+              {/* Minimap temporarily disabled - return to this later
               <Minimap
                 engine={engineRef.current}
                 gameMode={selectedMode || 'classic'}
               />
+              */}
             </>
           )}
 
